@@ -151,3 +151,181 @@ test("property math verifier rejects target and parameter outside model and equi
   assert.match(result.issues.join("\n"), /p_A/);
   assert.match(result.issues.join("\n"), /beta_X/);
 });
+
+test("property math verifier rejects a supported derivative that disagrees with the equilibrium closed form", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^* = alpha_B / q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "wrong-buyer-network-effect",
+        target: "tau_A^*",
+        parameter: "alpha_B",
+        operation: "differentiate",
+        symbolicResult: "partial tau_A^* / partial alpha_B = 2/q",
+        signCondition: "q>0 时为正",
+        propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求导。",
+        intuition: "方向错误的候选。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /偏导复算/);
+  assert.match(result.issues.join("\n"), /1\/q/);
+  assert.match(result.issues.join("\n"), /2\/q/);
+});
+
+test("property math verifier accepts equivalent derivatives with explicit multiplication", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^* = 2 * alpha_B / q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "buyer-network-effect",
+        target: "tau_A^*",
+        parameter: "alpha_B",
+        operation: "differentiate",
+        symbolicResult: "partial tau_A^* / partial alpha_B = 2/q",
+        signCondition: "q>0 时为正",
+        propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求导。",
+        intuition: "方向正确的候选。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});
+
+test("property math verifier accepts derivatives from a simple LaTeX fraction", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=\\frac{t_S-2\\alpha_B}{q}",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "buyer-network-effect",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "q>0 时为负",
+        propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求导。",
+        intuition: "方向正确的候选。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});
+
+test("property math verifier rejects wrong derivatives from a simple LaTeX fraction", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=\\frac{t_S-2\\alpha_B}{q}",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "wrong-buyer-network-effect",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=-\\frac{1}{q}",
+        signCondition: "q>0 时为负",
+        propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求导。",
+        intuition: "方向错误的候选。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /偏导复算/);
+  assert.match(result.issues.join("\n"), /2\/q/);
+  assert.match(result.issues.join("\n"), /1\/q/);
+});
+
+test("property math verifier reads chained equations inside markdown math", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm:
+        "在对称内部均衡中：$\\tau_A^*=\\tau_B^*=\\frac{t_S-2\\alpha_B}{q}$。",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "buyer-network-effect",
+        target: "\\tau_B^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_B^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "q>0 时为负",
+        propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+        proofSketch: "对 tau_B^* 关于 alpha_B 求导。",
+        intuition: "方向正确的候选。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});
