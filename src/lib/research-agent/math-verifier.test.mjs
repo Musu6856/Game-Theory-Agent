@@ -401,3 +401,46 @@ test("property math verifier accepts a zero sign condition for a recomputed zero
   assert.equal(result.ok, true);
   assert.deepEqual(result.issues, []);
 });
+
+test("property math verifier rejects a directional sign claim without required parameter sign conditions", () => {
+  const modelWithoutQSign = {
+    ...model,
+    symbols: model.symbols.map((symbol) =>
+      symbol.symbol === "q" ? { ...symbol, assumption: "unrestricted" } : symbol
+    ),
+    assumptions: [],
+  };
+  const result = verifyPropertyAnalysisMathConsistency({
+    model: modelWithoutQSign,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: [],
+      closedForm: "tau_A^*=-2*alpha_B/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "weak-sign-condition",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "为负",
+        propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        intuition: "候选直接声称方向，但没有说明 q 的符号。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /条件不足/);
+  assert.match(result.issues.join("\n"), /q/);
+});

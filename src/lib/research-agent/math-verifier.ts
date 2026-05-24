@@ -148,6 +148,20 @@ function verifyPropertyCalculusConsistency({
       })
     );
     const claimedSign = parseClaimedSign(analysis.signCondition);
+    const missingSignConditions = findMissingSignConditions(
+      expected,
+      collectSignAssumptions({ model, equilibrium, signCondition: "" })
+    );
+    if (
+      expectedSign === "unknown" &&
+      claimedSign !== "unknown" &&
+      missingSignConditions.length > 0
+    ) {
+      issues.push(
+        `第 ${index + 1} 条性质分析的符号条件不足：${analysis.target} 对 ${analysis.parameter} 的偏导为 ${formatExpression(expected)}，但要判断其${formatSign(claimedSign)}方向，还需要明确 ${missingSignConditions.join("、")} 的正负条件。`
+      );
+      return;
+    }
     if (
       expectedSign !== "unknown" &&
       claimedSign !== "unknown" &&
@@ -560,6 +574,55 @@ function inferFactorSign(
   }
 
   return "unknown";
+}
+
+function findMissingSignConditions(
+  expression: AlgebraExpression | null,
+  assumptions: Map<string, ExpressionSign>
+) {
+  if (!expression) return [];
+  const missing = new Set<string>();
+
+  expression.forEach((coefficient, term) => {
+    if (Math.abs(coefficient) < 1e-12 || term === "1") return;
+    term
+      .split("*")
+      .filter(Boolean)
+      .forEach((factor) => {
+        collectUnknownSignFactors(factor, assumptions).forEach((symbol) => {
+          missing.add(symbol);
+        });
+      });
+  });
+
+  return [...missing].sort();
+}
+
+function collectUnknownSignFactors(
+  factor: string,
+  assumptions: Map<string, ExpressionSign>
+) {
+  const normalized = canonicalFactor(factor);
+  const rawFactor = normalized.startsWith("1/")
+    ? normalized.slice(2)
+    : normalized;
+  const numeric = parseNumericFactor(rawFactor);
+  if (numeric !== null) return [];
+
+  const aliases = normalizeSymbolToken(rawFactor).filter((symbol) =>
+    isCandidateSymbol(symbol)
+  );
+  if (aliases.length === 0) return [];
+  if (
+    aliases.some((alias) => {
+      const sign = assumptions.get(alias);
+      return sign === "positive" || sign === "negative" || sign === "zero";
+    })
+  ) {
+    return [];
+  }
+
+  return [aliases[0]];
 }
 
 function parseTextSignAssumptions(value: string) {

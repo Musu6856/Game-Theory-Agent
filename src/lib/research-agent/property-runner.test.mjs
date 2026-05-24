@@ -232,6 +232,108 @@ test("property analysis agent repairs candidates with contradictory derivative s
   );
 });
 
+test("property analysis agent repairs candidates with underspecified derivative sign conditions", async () => {
+  const project = createSolvedProject();
+  const modelWithoutQSign = {
+    ...project.hotellingModel,
+    symbols: (project.hotellingModel?.symbols ?? []).map((symbol) =>
+      symbol.symbol === "q" ? { ...symbol, assumption: "unrestricted" } : symbol
+    ),
+    assumptions: [],
+  };
+  const projectWithWeakConditions = {
+    ...project,
+    hotellingModel: modelWithoutQSign,
+    equilibriumResult: {
+      ...project.equilibriumResult,
+      conditions: [],
+      closedForm: "tau_A^* = -2 * alpha_B / q",
+    },
+  };
+  const riskyAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 0
+      ? {
+          ...analysis,
+          id: "weak-sign-condition",
+          target: "tau_A^*",
+          parameter: "alpha_B",
+          symbolicResult: "partial tau_A^* / partial alpha_B = -2/q",
+          signCondition: "为负",
+          propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+          proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        }
+      : analysis
+  );
+  const repairedAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 0
+      ? {
+          ...analysis,
+          target: "tau_A^*",
+          parameter: "alpha_B",
+          symbolicResult: "partial tau_A^* / partial alpha_B = -2/q",
+          signCondition: "q>0 时为负",
+          propositionDraft: "命题：当 q>0 时，买方网络效应增强会降低均衡佣金。",
+          proofSketch: "由 tau_A^* = -2alpha_B/q 直接求偏导，并在 q>0 下判断符号。",
+        }
+      : analysis
+  );
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: projectWithWeakConditions.rawIdea,
+      project: projectWithWeakConditions,
+    },
+    {
+      id: "property-agent-weak-condition-repair-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        const analyses = attempts === 1 ? riskyAnalyses : repairedAnalyses;
+        return {
+          project: {
+            ...projectWithWeakConditions,
+            propertyAnalyses: analyses,
+            researchSession: {
+              ...projectWithWeakConditions.researchSession,
+              phase: "analysis",
+              assetSummary: {
+                ...projectWithWeakConditions.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  projectWithWeakConditions.researchSession?.assetSummary
+                    .confirmedAssumptions ?? [],
+                utilityFunctions:
+                  projectWithWeakConditions.researchSession?.assetSummary
+                    .utilityFunctions ?? [],
+                equilibriumStatus: "solved",
+                nextActions: ["检查命题条件", "整理论文草稿"],
+                pendingDecision: undefined,
+              },
+              messages: projectWithWeakConditions.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "性质分析候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const propertyChange = patch?.changes.find(
+    (change) => change.path === "propertyAnalyses"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(propertyChange?.value, repairedAnalyses);
+  assert.equal(
+    result.agentRun.trace.some((event) =>
+      String(event.metadata?.issues ?? "").includes("条件不足")
+    ),
+    true
+  );
+});
+
 test("property analysis agent keeps candidate analyses pending until applied", async () => {
   const project = createSolvedProject();
   const candidateAnalyses = createCandidateAnalyses();
