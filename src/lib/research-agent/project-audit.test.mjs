@@ -1,0 +1,169 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  buildProjectAuditMarkdown,
+  getProjectAuditMarkdownFilename,
+} from "./project-audit.ts";
+
+test("buildProjectAuditMarkdown exports a project-level audit report", () => {
+  const project = {
+    id: "project/audit:test",
+    createdAt: 1710000000000,
+    rawIdea: "研究二手平台佣金与补贴策略",
+    refinedIdea: "二手平台佣金补贴与卖家多归属",
+    projectType: "formal",
+    model: null,
+    wizardCompleted: true,
+    sections: [{ id: "intro", title: "引言", content: "草稿" }],
+    references: [],
+    researchSession: {
+      phase: "paper",
+      directions: [
+        {
+          id: "seller-multihoming",
+          title: "卖家多归属与平台佣金补贴",
+          summary: "比较平台佣金与补贴对卖家多归属的影响。",
+          model: "Hotelling 双边平台",
+          contribution: "给出可解释的比较静态。",
+          recommended: true,
+          evidenceSourceIds: ["web-1"],
+          evidenceNote: "来源支持平台补贴与卖家多归属的联系。",
+        },
+      ],
+      messages: [],
+      assetSummary: {
+        currentDirection: {
+          id: "seller-multihoming",
+          title: "卖家多归属与平台佣金补贴",
+          summary: "比较平台佣金与补贴对卖家多归属的影响。",
+          model: "Hotelling 双边平台",
+          contribution: "给出可解释的比较静态。",
+          recommended: true,
+          evidenceSourceIds: ["web-1"],
+        },
+        confirmedAssumptions: ["平台同时选择佣金和补贴。"],
+        utilityFunctions: ["U_B = v - p + alpha n"],
+        equilibriumStatus: "solved",
+        nextActions: ["导出论文草稿"],
+      },
+      evidencePack: {
+        query: "secondhand platform seller multihoming subsidy",
+        createdAt: 1710000000100,
+        summary: "检索显示佣金、补贴与卖家多归属是相关机制。",
+        sources: [
+          {
+            id: "web-1",
+            title: "Seller multihoming in platforms",
+            url: "https://example.com/paper",
+            sourceType: "paper",
+            retrievedAt: 1710000000200,
+            snippet: "Platforms compete for sellers.",
+            summary: "讨论卖家多归属和平台竞争。",
+            relevance: "支持研究方向。",
+          },
+        ],
+      },
+      agentRunHistory: [
+        {
+          id: "run-1",
+          goal: "推进到下一个审核点",
+          status: "paused",
+          startedAt: 1710000000300,
+          completedAt: 1710000000400,
+          pauseReason: "等待用户审核论文草稿。",
+          plan: [
+            {
+              id: "draft-paper",
+              kind: "tool",
+              toolName: "research.draftPaper",
+              title: "生成论文草稿",
+              status: "completed",
+            },
+            {
+              id: "review-paper",
+              kind: "approval",
+              title: "等待审核论文草稿",
+              status: "pending",
+            },
+          ],
+          checkpoints: [
+            {
+              id: "checkpoint-1",
+              runId: "run-1",
+              stepId: "draft-paper",
+              title: "生成论文草稿",
+              status: "completed",
+              createdAt: 1710000000350,
+            },
+          ],
+          trace: [
+            {
+              id: "trace-1",
+              runId: "run-1",
+              stepId: "draft-paper",
+              type: "tool_result",
+              message: "Created paper patch.",
+              createdAt: 1710000000360,
+              metadata: { patchId: "patch-paper" },
+            },
+          ],
+        },
+      ],
+      assetVersionHistory: [
+        {
+          id: "version-1",
+          assetKind: "paper",
+          action: "applied_patch",
+          patchId: "patch-paper",
+          summary: "应用论文草稿",
+          changedPaths: ["sections"],
+          changes: [
+            {
+              kind: "replace",
+              path: "sections",
+              previousValue: [],
+              value: [{ id: "intro", title: "引言", content: "草稿" }],
+            },
+          ],
+          changeCount: 1,
+          createdAt: 1710000000500,
+          approvedBy: "user",
+          nextRecommendation: "论文草稿已写入；下一步可以导出 Markdown。",
+        },
+      ],
+    },
+  };
+
+  const markdown = buildProjectAuditMarkdown(project);
+
+  assert.match(markdown, /^# PaperForge 项目审计报告/);
+  assert.match(markdown, /研究想法：研究二手平台佣金与补贴策略/);
+  assert.match(markdown, /当前阶段：论文草稿/);
+  assert.match(markdown, /## 联网搜索来源/);
+  assert.match(markdown, /\[web-1\] Seller multihoming in platforms/);
+  assert.match(markdown, /## 方向选择/);
+  assert.match(markdown, /卖家多归属与平台佣金补贴/);
+  assert.match(markdown, /## Agent 执行记录/);
+  assert.match(markdown, /run-1/);
+  assert.match(markdown, /生成论文草稿/);
+  assert.match(markdown, /## 资产审核历史/);
+  assert.match(markdown, /后续建议：论文草稿已写入/);
+  assert.match(markdown, /"patchId": "patch-paper"/);
+});
+
+test("getProjectAuditMarkdownFilename sanitizes project ids", () => {
+  assert.equal(
+    getProjectAuditMarkdownFilename({
+      id: "project/audit:test",
+      createdAt: 1710000000000,
+      rawIdea: "研究二手平台佣金与补贴策略",
+      refinedIdea: "二手平台佣金补贴与卖家多归属",
+      model: null,
+      wizardCompleted: true,
+      sections: [],
+      references: [],
+    }),
+    "paperforge-project-audit-project-audit-test.md"
+  );
+});

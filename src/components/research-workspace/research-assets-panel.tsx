@@ -31,6 +31,10 @@ import {
   getResearchProjectMarkdownFilename,
 } from "@/lib/research-export";
 import {
+  buildProjectAuditMarkdown,
+  getProjectAuditMarkdownFilename,
+} from "@/lib/research-agent/project-audit";
+import {
   planSafeContinuation,
   recommendNextAgentStep,
   type SafeContinuationPlan,
@@ -201,14 +205,10 @@ function ResearchAssetsPanelContent({
   const handleExportMarkdown = () => {
     if (!project) return;
 
-    const markdown = buildResearchProjectMarkdown(project);
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = getResearchProjectMarkdownFilename(project);
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadMarkdownFile(
+      buildResearchProjectMarkdown(project),
+      getResearchProjectMarkdownFilename(project)
+    );
   };
 
   if (isCollapsed) {
@@ -314,7 +314,9 @@ function ResearchAssetsPanelContent({
           />
         ) : null}
 
-        {activeTab === "evidence" ? <EvidenceTab session={session} /> : null}
+        {activeTab === "evidence" ? (
+          <EvidenceTab project={project} session={session} />
+        ) : null}
 
         {activeTab === "model" ? (
           <ModelTab
@@ -413,13 +415,31 @@ function DirectionsTab({
   );
 }
 
-function EvidenceTab({ session }: { session: ResearchSession }) {
+function EvidenceTab({
+  project,
+  session,
+}: {
+  project?: ResearchProject;
+  session: ResearchSession;
+}) {
   const pack = session.evidencePack;
   const runs = getAgentRunsForDisplay(session);
+  const handleExportProjectAudit = () => {
+    if (!project) return;
+
+    downloadMarkdownFile(
+      buildProjectAuditMarkdown(project),
+      getProjectAuditMarkdownFilename(project)
+    );
+  };
 
   if (!pack) {
     return (
       <div className="space-y-4">
+        <ProjectAuditExportCard
+          project={project}
+          onExport={handleExportProjectAudit}
+        />
         <EmptyLine text="当前研究还没有联网来源。开启新的方向发现后，这里会显示检索来源；已执行过的 Agent 步骤会继续记录在下面。" />
         <AgentRunHistory runs={runs} />
       </div>
@@ -428,6 +448,10 @@ function EvidenceTab({ session }: { session: ResearchSession }) {
 
   return (
     <div className="space-y-4">
+      <ProjectAuditExportCard
+        project={project}
+        onExport={handleExportProjectAudit}
+      />
       <AssetSection
         title="来源依据"
         description="这里只保留来源标题、链接、摘要和相关性说明，不会把网页全文直接交给模型。"
@@ -500,6 +524,45 @@ function EvidenceTab({ session }: { session: ResearchSession }) {
 
       <AgentRunHistory runs={runs} />
     </div>
+  );
+}
+
+function ProjectAuditExportCard({
+  project,
+  onExport,
+}: {
+  project?: ResearchProject;
+  onExport: () => void;
+}) {
+  const session = project?.researchSession;
+  const runCount = getProjectAgentRunCount(session);
+  const versionCount = session?.assetVersionHistory?.length ?? 0;
+  const sourceCount = session?.evidencePack?.sources.length ?? 0;
+
+  return (
+    <AssetSection
+      title="项目审计"
+      description="把本项目的联网搜索、方向选择、Agent 执行记录和资产审核历史导出为一份 Markdown 报告。"
+    >
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2 text-[11px] leading-5">
+          <InfoTile label="来源" value={`${sourceCount}`} />
+          <InfoTile label="执行记录" value={`${runCount}`} />
+          <InfoTile label="审核历史" value={`${versionCount}`} />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5"
+          onClick={onExport}
+          disabled={!project}
+        >
+          <Download className="size-3.5" />
+          导出项目审计
+        </Button>
+      </div>
+    </AssetSection>
   );
 }
 
@@ -1641,14 +1704,10 @@ function AgentRunTrace({ run }: { run: AgentRun }) {
     (visibleSteps.length !== allSteps.length ||
       visibleUnscopedEvents.length !== replay.unscopedEvents.length);
   const handleExportAudit = () => {
-    const markdown = buildAgentRunAuditMarkdown(run);
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = getAgentRunAuditMarkdownFilename(run);
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadMarkdownFile(
+      buildAgentRunAuditMarkdown(run),
+      getAgentRunAuditMarkdownFilename(run)
+    );
   };
 
   return (
@@ -2093,6 +2152,25 @@ function formatTraceType(type: AgentTraceEvent["type"]) {
 function getAgentRunsForDisplay(session: ResearchSession) {
   const runs = session.agentRunHistory ?? (session.agentRun ? [session.agentRun] : []);
   return runs.slice(-5).reverse();
+}
+
+function getProjectAgentRunCount(session?: ResearchSession) {
+  if (!session) return 0;
+
+  const ids = new Set<string>();
+  session.agentRunHistory?.forEach((run) => ids.add(run.id));
+  if (session.agentRun) ids.add(session.agentRun.id);
+  return ids.size;
+}
+
+function downloadMarkdownFile(markdown: string, filename: string) {
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatAgentRunStatus(status: AgentRun["status"]) {

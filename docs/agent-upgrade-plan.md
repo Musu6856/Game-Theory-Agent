@@ -381,8 +381,9 @@ type EvidenceSource = {
 - `src/lib/research-agent/state.ts` 已为步骤状态变化记录 `checkpoints`，包含步骤、状态、工具名、时间和前一状态；右侧“来源”tab 会显示最近检查点。
 - `src/lib/research-agent/resume.ts` 已提供 AgentRun 续跑工具：按 `runId` 找回历史 run，选择最近失败/运行中 checkpoint，把失败步骤重新置为 running，并保留同一条 trace/checkpoint 历史。
 - `src/lib/research-agent/trace-replay.ts` 已提供步骤回放与审计导出：把 plan、trace event 和 checkpoint 合并为按步骤排列的回放项，标记失败、恢复、最近事件和未归属事件，并能生成单次 AgentRun Markdown 审计记录。
+- `src/lib/research-agent/project-audit.ts` 已提供项目级 Markdown 审计导出：汇总项目概览、联网搜索来源、方向选择、待审核修改建议、Agent 执行记录和资产审核历史。
 - 右侧“来源”tab 会展示最近多次 Agent 执行记录，包括连续推进的计划、已执行步骤、停止原因、阻塞项和步骤回放。
-- 右侧“来源”tab 的执行记录支持按全部、异常、恢复、工具、模型和审核筛选，支持展开完整 trace/checkpoint 元数据，也支持导出单条执行记录。
+- 右侧“来源”tab 的执行记录支持按全部、异常、恢复、工具、模型和审核筛选，支持展开完整 trace/checkpoint 元数据，也支持导出单条执行记录和项目级审计报告。
 - `src/lib/research-agent/recovery.ts` 已提供恢复建议 v1：根据最近一次 `AgentRun` 的 `failed`、`paused` 或 `running` 状态，结合最近 checkpoint 判断应重试当前步骤、继续推进到审核点，还是先处理待审核 patch。
 - 右侧工作台顶部会在需要时显示恢复提示；恢复动作复用现有模型确认、Agent action 和“推进到审核点”，不会替用户选择方向，也不会自动应用 patch。对均衡、性质分析和论文草稿 action，恢复请求会把 `runId` 和 checkpoint 传回 Agent 入口。
 - `src/lib/research-pending-patches-layout.ts` 已提供审核负担分层：模型和均衡 patch 默认是“重点审核”，普通性质分析 patch 是“标准审核”，论文草稿整理是“快速审核”；如果性质分析或论文 patch 带有数学自检风险，也会提升为“重点审核”。
@@ -404,14 +405,15 @@ type EvidenceSource = {
 - 已完成 v1：AgentRun 会记录步骤检查点；失败、暂停或疑似中断的最近一次 AgentRun 会被转译成带检查点的安全恢复提示。
 - 已完成 v1：均衡、性质分析和论文草稿 runner 可沿用同一 `AgentRun.id` 从失败步骤重试，并跳过该 run 中已经完成的准备步骤。
 - 已完成 v1：Agent 执行记录按步骤回放，用户能看到每一步的状态、最近说明、检查点数、事件数和恢复标记。
+- 已完成 v1：项目级 Markdown 审计报告会汇总来源、方向、待审核修改建议、Agent 执行记录和资产审核历史，方便把单条 trace 放回整个研究上下文。
 - 已完成 v1：模型、均衡和性质分析 runner 在自检失败时会最多重试一次候选生成，并在 trace 中记录 `repairAttempted`、剩余问题和是否修复成功。
 - 已完成 v1：均衡和性质分析 runner 已接入数学验证 v1；未落地符号会被视为自检问题进入同一个修复闭环，但正式资产仍必须经过待审核 patch。
 - 已完成 v1：性质分析 runner 已接入 CAS 复算 v1；支持的简单偏导等式如果与均衡闭式解不一致，会被视为自检问题进入同一个修复闭环。
 - 已完成 v2：性质分析 runner 已接入符号条件一致性检查；支持的简单偏导如果方向与 `signCondition` 明确矛盾，会被视为自检问题进入同一个修复闭环。
 - 已完成 v1：性质分析 runner 已接入条件强弱检查；支持的简单偏导如果缺少判断方向所需的参数正负条件，会被视为自检问题进入同一个修复闭环。
 - 已完成 v1：性质分析 runner 已接入命题组去重/冲突检查；重复主题和相反方向结论会被视为自检问题进入同一个修复闭环。
-- 已完成 v1：Agent 执行记录支持筛选、展开完整元数据和导出单次 AgentRun Markdown 审计记录。
-- 待加强：checkpoint 续跑目前是“从失败步骤重试”，不是恢复半个 HTTP 请求或后台长任务进程；审计导出仍是单次 AgentRun 级别，跨版本完整审计报告和更强的自动修复仍需要继续拆成可审阅的 Agent 化步骤。
+- 已完成 v1：Agent 执行记录支持筛选、展开完整元数据、导出单次 AgentRun Markdown 审计记录，并可导出单项目级审计报告。
+- 待加强：checkpoint 续跑目前是“从失败步骤重试”，不是恢复半个 HTTP 请求或后台长任务进程；审计导出已覆盖单项目上下文，跨项目、跨版本比较报告和更强的自动修复仍需要继续拆成可审阅的 Agent 化步骤。
 
 ### Phase 7: 长程研究记忆与版本管理
 
@@ -432,6 +434,7 @@ type EvidenceSource = {
 - 已完成 v1：恢复执行会把新的 trace/checkpoint 接回原 AgentRun 历史，避免每次重试都开一条孤立记录。
 - 已完成 v1：右侧 Agent 执行记录以步骤回放展示历史 trace，方便用户理解“为什么推进到这里、哪里失败、是否恢复过”。
 - 已完成 v1：执行记录可以按异常、恢复、工具、模型和审核筛选，展开完整元数据，并导出单次 AgentRun 审计 Markdown。
+- 已完成 v1：单项目审计报告可以汇总联网搜索、方向选择、待审核修改建议、Agent 执行记录和资产审核历史。
 - 待加强：更完整的跨版本比较、跨项目审计报告、后台任务级续跑和批量恢复工具。
 
 ## 8. UI 方向
