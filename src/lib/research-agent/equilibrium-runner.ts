@@ -109,7 +109,7 @@ export async function runEquilibriumSolvingAgent(
   );
 
   const solveEquilibrium = client.solveEquilibrium ?? generateResearchProject;
-  const solveResult = await solveEquilibrium(
+  let solveResult = await solveEquilibrium(
     {
       action: "solve_equilibrium",
       rawIdea: request.rawIdea,
@@ -117,7 +117,7 @@ export async function runEquilibriumSolvingAgent(
     },
     client
   );
-  const candidateEquilibrium = solveResult.project.equilibriumResult;
+  let candidateEquilibrium = solveResult.project.equilibriumResult;
 
   if (!candidateEquilibrium) {
     agentRun = appendTraceEvent(
@@ -158,7 +158,70 @@ export async function runEquilibriumSolvingAgent(
   agentRun = updateStepStatus(agentRun, "draft-equilibrium", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-equilibrium", "running", now);
-  const review = reviewEquilibriumCandidate(candidateEquilibrium);
+  let review = reviewEquilibriumCandidate(candidateEquilibrium);
+  if (!review.ok) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-equilibrium",
+        type: "fallback",
+        message:
+          "Equilibrium self-review found repairable risks; requested one bounded repair attempt.",
+        metadata: {
+          repairAttempted: true,
+          issues: review.issues,
+        },
+      },
+      now
+    );
+    const repairResult = await solveEquilibrium(
+      {
+        action: "solve_equilibrium",
+        rawIdea: request.rawIdea,
+        userMessage: createEquilibriumRepairMessage(review.issues),
+        project: request.project,
+      },
+      client
+    );
+    const repairedEquilibrium = repairResult.project.equilibriumResult;
+
+    if (repairedEquilibrium) {
+      const repairReview = reviewEquilibriumCandidate(repairedEquilibrium);
+      agentRun = appendTraceEvent(
+        agentRun,
+        {
+          stepId: "review-equilibrium",
+          type: "tool_result",
+          message: repairReview.ok
+            ? "Equilibrium repair candidate passed self-review."
+            : "Equilibrium repair candidate still has review risks.",
+          metadata: {
+            repaired: repairReview.ok,
+            remainingIssues: repairReview.issues,
+            originalIssueCount: review.issues.length,
+          },
+        },
+        now
+      );
+      if (repairReview.issues.length <= review.issues.length) {
+        solveResult = repairResult;
+        candidateEquilibrium = repairedEquilibrium;
+        review = repairReview;
+      }
+    } else {
+      agentRun = appendTraceEvent(
+        agentRun,
+        {
+          stepId: "review-equilibrium",
+          type: "fallback",
+          message:
+            "Equilibrium repair attempt returned no usable equilibrium; keeping the original candidate.",
+          metadata: { repairAttempted: true, repairReturnedCandidate: false },
+        },
+        now
+      );
+    }
+  }
   agentRun = appendTraceEvent(
     agentRun,
     {
@@ -264,6 +327,14 @@ function reviewEquilibriumCandidate(equilibrium: EquilibriumResult) {
     ok: issues.length === 0,
     issues,
   };
+}
+
+function createEquilibriumRepairMessage(issues: string[]) {
+  return [
+    "Agent 自检发现均衡候选还不适合进入性质分析，请只修复以下问题，保持当前模型和符号表不变：",
+    ...issues.map((issue) => `- ${issue}`),
+    "修复后仍返回完整 equilibriumResult JSON；不要使用数值模拟、校准或经验回归。",
+  ].join("\n");
 }
 
 function createEquilibriumCandidatePatch({

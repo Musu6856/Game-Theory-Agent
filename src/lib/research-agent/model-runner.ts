@@ -112,7 +112,7 @@ export async function runModelGenerationAgent(
   );
 
   const buildModel = client.buildModel ?? generateResearchProject;
-  const buildResult = await buildModel(
+  let buildResult = await buildModel(
     {
       action: "build_model",
       rawIdea: request.rawIdea,
@@ -122,7 +122,7 @@ export async function runModelGenerationAgent(
     },
     client
   );
-  const candidateModel = buildResult.project.hotellingModel;
+  let candidateModel = buildResult.project.hotellingModel;
 
   if (!candidateModel) {
     agentRun = appendTraceEvent(
@@ -162,7 +162,74 @@ export async function runModelGenerationAgent(
   agentRun = updateStepStatus(agentRun, "draft-model", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-model", "running", now);
-  const review = reviewModelCandidate(candidateModel);
+  let review = reviewModelCandidate(candidateModel);
+  if (!review.ok) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-model",
+        type: "fallback",
+        message:
+          "Model self-review found repairable risks; requested one bounded repair attempt.",
+        metadata: {
+          repairAttempted: true,
+          issues: review.issues,
+        },
+      },
+      now
+    );
+    const repairResult = await buildModel(
+      {
+        action: "build_model",
+        rawIdea: request.rawIdea,
+        selectedDirectionId: request.selectedDirectionId,
+        userMessage: createModelRepairMessage({
+          originalMessage: request.userMessage,
+          issues: review.issues,
+        }),
+        project: request.project,
+      },
+      client
+    );
+    const repairedModel = repairResult.project.hotellingModel;
+
+    if (repairedModel) {
+      const repairReview = reviewModelCandidate(repairedModel);
+      agentRun = appendTraceEvent(
+        agentRun,
+        {
+          stepId: "review-model",
+          type: "tool_result",
+          message: repairReview.ok
+            ? "Model repair candidate passed self-review."
+            : "Model repair candidate still has review risks.",
+          metadata: {
+            repaired: repairReview.ok,
+            remainingIssues: repairReview.issues,
+            originalIssueCount: review.issues.length,
+          },
+        },
+        now
+      );
+      if (repairReview.issues.length <= review.issues.length) {
+        buildResult = repairResult;
+        candidateModel = repairedModel;
+        review = repairReview;
+      }
+    } else {
+      agentRun = appendTraceEvent(
+        agentRun,
+        {
+          stepId: "review-model",
+          type: "fallback",
+          message:
+            "Model repair attempt returned no usable model; keeping the original candidate.",
+          metadata: { repairAttempted: true, repairReturnedCandidate: false },
+        },
+        now
+      );
+    }
+  }
   agentRun = appendTraceEvent(
     agentRun,
     {
@@ -250,6 +317,23 @@ function reviewModelCandidate(model: HotellingModel) {
     ok: issues.length === 0,
     issues,
   };
+}
+
+function createModelRepairMessage({
+  originalMessage,
+  issues,
+}: {
+  originalMessage?: string;
+  issues: string[];
+}) {
+  return [
+    originalMessage?.trim(),
+    "Agent 自检发现模型候选还不适合直接进入均衡求解，请只修复以下问题，保持同一个研究方向，不要扩展成新论文题目：",
+    ...issues.map((issue) => `- ${issue}`),
+    "修复后仍返回完整 hotellingModel JSON。",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function createModelCandidatePatch({

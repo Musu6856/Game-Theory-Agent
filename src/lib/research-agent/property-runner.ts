@@ -107,7 +107,7 @@ export async function runPropertyAnalysisAgent(
   );
 
   const analyzeProperties = client.analyzeProperties ?? generateResearchProject;
-  const analysisResult = await analyzeProperties(
+  let analysisResult = await analyzeProperties(
     {
       action: "analyze_properties",
       rawIdea: request.rawIdea,
@@ -115,7 +115,7 @@ export async function runPropertyAnalysisAgent(
     },
     client
   );
-  const candidateAnalyses = analysisResult.project.propertyAnalyses ?? [];
+  let candidateAnalyses = analysisResult.project.propertyAnalyses ?? [];
 
   if (candidateAnalyses.length === 0) {
     agentRun = appendTraceEvent(
@@ -155,7 +155,70 @@ export async function runPropertyAnalysisAgent(
   agentRun = updateStepStatus(agentRun, "draft-properties", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-properties", "running", now);
-  const review = reviewPropertyAnalysisCandidates(candidateAnalyses);
+  let review = reviewPropertyAnalysisCandidates(candidateAnalyses);
+  if (!review.ok) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-properties",
+        type: "fallback",
+        message:
+          "Property analysis self-review found repairable risks; requested one bounded repair attempt.",
+        metadata: {
+          repairAttempted: true,
+          issues: review.issues,
+        },
+      },
+      now
+    );
+    const repairResult = await analyzeProperties(
+      {
+        action: "analyze_properties",
+        rawIdea: request.rawIdea,
+        userMessage: createPropertyRepairMessage(review.issues),
+        project: request.project,
+      },
+      client
+    );
+    const repairedAnalyses = repairResult.project.propertyAnalyses ?? [];
+
+    if (repairedAnalyses.length > 0) {
+      const repairReview = reviewPropertyAnalysisCandidates(repairedAnalyses);
+      agentRun = appendTraceEvent(
+        agentRun,
+        {
+          stepId: "review-properties",
+          type: "tool_result",
+          message: repairReview.ok
+            ? "Property analysis repair candidates passed self-review."
+            : "Property analysis repair candidates still have review risks.",
+          metadata: {
+            repaired: repairReview.ok,
+            remainingIssues: repairReview.issues,
+            originalIssueCount: review.issues.length,
+          },
+        },
+        now
+      );
+      if (repairReview.issues.length <= review.issues.length) {
+        analysisResult = repairResult;
+        candidateAnalyses = repairedAnalyses;
+        review = repairReview;
+      }
+    } else {
+      agentRun = appendTraceEvent(
+        agentRun,
+        {
+          stepId: "review-properties",
+          type: "fallback",
+          message:
+            "Property analysis repair attempt returned no usable analyses; keeping the original candidate.",
+          metadata: { repairAttempted: true, repairReturnedCandidate: false },
+        },
+        now
+      );
+    }
+  }
   agentRun = appendTraceEvent(
     agentRun,
     {
@@ -276,6 +339,14 @@ function reviewPropertyAnalysisCandidates(analyses: PropertyAnalysis[]) {
     ok: issues.length === 0,
     issues,
   };
+}
+
+function createPropertyRepairMessage(issues: string[]) {
+  return [
+    "Agent 自检发现性质分析候选还不适合进入论文整理，请只修复以下问题，保持当前模型、均衡和符号表不变：",
+    ...issues.map((issue) => `- ${issue}`),
+    "修复后返回 3 到 5 条完整 propertyAnalyses；每条必须有符号结果、符号条件、命题草稿和证明草图。",
+  ].join("\n");
 }
 
 function createPropertyAnalysisCandidatePatch({

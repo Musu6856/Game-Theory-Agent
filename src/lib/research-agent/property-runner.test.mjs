@@ -204,3 +204,93 @@ test("property analysis agent keeps candidate analyses pending until applied", a
   assert.equal(applied.researchSession?.assetPatches?.[0].status, "applied");
   assert.equal(applied.researchSession?.assetSummary.pendingDecision, undefined);
 });
+
+test("property analysis agent retries once when self-review finds repairable risks", async () => {
+  const project = createSolvedProject();
+  const riskyAnalyses = [
+    {
+      id: "thin-analysis",
+      target: "\\tau_A^*",
+      parameter: "\\alpha_B",
+      operation: "differentiate",
+      symbolicResult: "\\partial \\tau_A^*/\\partial \\alpha_B = -1/(2q)",
+      signCondition: "q>0 时为负",
+      propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+      proofSketch: "对闭式均衡佣金求偏导。",
+      intuition: "网络效应改变平台补贴和收费权衡。",
+      warnings: [],
+    },
+  ];
+  const repairedAnalyses = createCandidateAnalyses();
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "property-agent-repair-test",
+      now: 1710000000000,
+      analyzeProperties: async (request) => {
+        attempts += 1;
+        assert.equal(
+          attempts === 1 || /自检发现/.test(request.userMessage ?? ""),
+          true
+        );
+        const analyses = attempts === 1 ? riskyAnalyses : repairedAnalyses;
+        return {
+          project: {
+            ...project,
+            propertyAnalyses: analyses,
+            researchSession: {
+              ...project.researchSession,
+              phase: "analysis",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus:
+                  project.researchSession?.assetSummary.equilibriumStatus ??
+                  "solved",
+                nextActions: ["检查命题条件", "整理论文草稿"],
+                pendingDecision: undefined,
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "性质分析候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const propertyChange = patch?.changes.find(
+    (change) => change.path === "propertyAnalyses"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(propertyChange?.value, repairedAnalyses);
+  assert.equal(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-properties" &&
+        event.type === "fallback" &&
+        event.metadata?.repairAttempted === true
+    ),
+    true
+  );
+  assert.equal(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-properties" &&
+        event.type === "tool_result" &&
+        event.metadata?.repaired === true
+    ),
+    true
+  );
+});

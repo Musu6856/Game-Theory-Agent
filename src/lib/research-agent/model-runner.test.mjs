@@ -253,3 +253,147 @@ test("model generation agent keeps candidate model changes pending until applied
   assert.deepEqual(applied.hotellingModel?.timing, candidateModel.timing);
   assert.equal(applied.researchSession?.assetPatches?.[0].status, "applied");
 });
+
+test("model generation agent retries once when self-review finds repairable risks", async () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "研究二手交易平台相关模型",
+    now: 1710000000000,
+  });
+  const riskyModel = {
+    symbols: [],
+    sides: {
+      consumerSideName: "买家",
+      merchantSideName: "卖家",
+    },
+    platforms: ["A", "B"],
+    timing: [],
+    utilityFunctions: [
+      {
+        id: "u-buyer-a",
+        side: "consumer",
+        platform: "A",
+        expression: "U_A^B = v_B + s_A - t_B x",
+        notes: "只有买方效用，缺少卖方侧。",
+      },
+    ],
+    demandDerivation: "只写了买方需求。",
+    profitFunctions: [],
+    assumptions: ["两平台位于 Hotelling 线段两端。"],
+    modelSetupDraft: "一版过窄的模型候选。",
+  };
+  const repairedModel = {
+    ...riskyModel,
+    timing: [
+      {
+        id: "stage-pricing",
+        order: 1,
+        name: "平台选择佣金和补贴",
+        decisions: ["\\tau_i", "s_i"],
+      },
+    ],
+    utilityFunctions: [
+      riskyModel.utilityFunctions[0],
+      {
+        id: "u-seller-a",
+        side: "merchant",
+        platform: "A",
+        expression: "U_A^S = v_S - \\tau_A q - t_S y",
+        notes: "补上卖方侧效用。",
+      },
+    ],
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression: "\\Pi_A = \\tau_A q n_A^S n_A^B - s_A n_A^B",
+        notes: "补上平台利润函数。",
+      },
+    ],
+    assumptions: ["两平台位于 Hotelling 线段两端。", "买卖双方单归属。"],
+    modelSetupDraft: "修复后的可求解模型候选。",
+  };
+  let attempts = 0;
+
+  const result = await runModelGenerationAgent(
+    {
+      rawIdea: project.rawIdea,
+      selectedDirectionId: "secondhand-commission-subsidy-hotelling",
+      project,
+    },
+    {
+      id: "model-agent-repair-test",
+      now: 1710000000000,
+      buildModel: async (request) => {
+        attempts += 1;
+        const model = attempts === 1 ? riskyModel : repairedModel;
+        assert.equal(
+          attempts === 1 || /自检发现/.test(request.userMessage ?? ""),
+          true
+        );
+        return {
+          project: {
+            ...project,
+            projectType: "formal",
+            refinedIdea: "佣金与补贴竞争",
+            hotellingModel: model,
+            researchSession: {
+              ...project.researchSession,
+              phase: "model",
+              messages: [
+                ...(project.researchSession?.messages ?? []),
+                {
+                  id: `msg-provider-model-${attempts}`,
+                  role: "assistant",
+                  content: "模型候选。",
+                  createdAt: 0,
+                },
+              ],
+              assetSummary: {
+                currentDirection: project.researchSession?.directions[0],
+                confirmedAssumptions: model.assumptions,
+                utilityFunctions: model.utilityFunctions.map(
+                  (entry) => `$${entry.expression}$`
+                ),
+                equilibriumStatus: "等待模型确认",
+                nextActions: ["确认模型设定"],
+                pendingDecision: {
+                  kind: "answer_model_question",
+                  prompt: "请确认当前模型设定，之后进入符号化均衡求解。",
+                },
+              },
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "模型候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const profitChange = patch?.changes.find(
+    (change) => change.path === "hotellingModel.profitFunctions"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(profitChange?.value, repairedModel.profitFunctions);
+  assert.equal(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-model" &&
+        event.type === "fallback" &&
+        event.metadata?.repairAttempted === true
+    ),
+    true
+  );
+  assert.equal(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-model" &&
+        event.type === "tool_result" &&
+        event.metadata?.repaired === true
+    ),
+    true
+  );
+});
