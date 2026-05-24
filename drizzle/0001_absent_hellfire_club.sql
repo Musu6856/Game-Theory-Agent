@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "wizard_completed" boolean DEFAULT false NOT NULL;

@@ -1,0 +1,218 @@
+# PaperForge-Agent
+
+PaperForge-Agent 是从 PaperForge 派生出的 Agent 版中文理论研究系统。它保留 PaperForge 已有的研究工作台、项目持久化、模型源配置、结构化生成、patch 审核和质量控制，把后续实验集中放在一个独立项目里，避免影响原始闭环产品。
+
+原始 PaperForge 仍是稳定底座；本项目用于升级 Agent loop、联网搜索、来源整理、工具调用、执行轨迹和更强的研究自动化。
+
+## 最终目标
+
+PaperForge-Agent 的目标不是一键自动写完论文，而是把理论研究流程做成可审阅、可暂停、可修正的 Agent loop。用户输入一个模糊研究想法后，Agent 逐步推进方向发现、联网搜索、模型设计、可解性检查、均衡求解、比较静态、论文草稿和导出。
+
+最终体验应该是：
+
+1. 用户输入研究想法
+2. Agent 搜索公开来源并整理可引用依据
+3. Agent 提出多个可建模方向，用户选择一个方向
+4. Agent 设计理论模型，并检查参数、假设和可解性
+5. 用户审阅并批准关键模型资产变更
+6. Agent 求解均衡，生成比较静态和命题
+7. Agent 基于已确认资产生成论文草稿和导出结果
+8. 全流程保留来源、计划、工具结果、失败原因和用户审批记录
+
+Agent 负责拆解、搜索、建模、检查、修正和记录；用户负责选择方向、批准关键假设、审阅资产变更。
+
+## 项目目标
+
+- 把“用户点击单步生成”升级为“Agent 规划、调用工具、观察结果、暂停审核、继续推进”的研究流程
+- 在选题方向阶段接入联网检索和开放学术数据，减少只依赖模型训练知识带来的滞后
+- 保持研究资产可审计：模型、均衡、性质分析的修改仍走待审核 patch，不直接覆盖
+- 让 Agent 的每一步都有 trace，方便研究者理解它为什么这样推进
+
+## 什么算 Agent 化
+
+PaperForge 现在已经有方向、建模、均衡、性质分析和论文输出等分步能力。Agent 化不是把这些步骤重新命名，也不是让 AI 一次性把全部事情自动做完。
+
+更准确的区别是：
+
+- 现在的流程更像“用户点一步，系统生成一步”：prompt 约束能让输出更规整，但系统通常不会主动检查上一步结果是否适合继续推进。
+- Agent 化后的流程更像“系统围绕一个研究目标持续推进”：Agent 维护目标和状态，制定计划，调用工具，观察结果，自检风险，必要时返工，并在关键资产变更前请求用户批准。
+- 用户仍然可以一步一步参与，但每一步不再只是单次生成，而是一个可追踪、可解释、可暂停、可修正的小循环。
+
+因此，后续阶段的重点不是补齐“有没有模型/均衡/论文”的功能，而是把已有能力从“会生成”升级成“会研究”。
+
+## 当前阶段：联网搜索 + 方向发现 Agent
+
+第一阶段先做“联网搜索 + 方向发现 Agent”：
+
+1. 用户输入一个研究想法
+2. Agent 按用户开关决定是否联网搜索
+3. 系统抽取来源标题、URL、时间、摘要和相关性说明
+4. Agent 整理成精简的来源依据
+5. 方向发现 prompt 基于来源依据生成研究方向
+6. 工作台展示方向、参考来源和执行记录
+
+这一步先服务选题方向，不做无限制爬虫，也不做全自动论文生成。
+
+当前已经具备：
+
+- 方向发现 Agent 入口：`src/app/api/research/agent/route.ts`
+- Agent 编排代码：`src/lib/research-agent/`
+- 开放学术检索：OpenAlex、Crossref、arXiv
+- 公开网页搜索：优先 Tavily MCP，失败时可回退到 Tavily REST
+- 用户开关：左侧设置里的“联网搜索”
+- MCP 可用性检测：左侧设置里的“联网 / MCP”
+- 右侧“来源”tab：展示检索词、保留来源和 Agent 执行记录
+
+选方向之后的模型设定、符号、参数、均衡、性质分析和论文输出仍复用已有研究能力作为底座，但关键推进步骤已经进入 Agent 化 v1：采纳方向后，系统会先生成模型候选、做基础自检、留下 Agent 执行记录，并把候选模型作为待审核 patch；模型确认后，均衡求解会先生成候选推导、自检闭式解/FOC/条件，再把候选均衡作为待审核 patch；均衡应用后，性质分析会先生成比较静态与命题候选、自检条件完整性，再作为待审核 patch 进入右侧资产；性质分析稳定后，论文输出 Agent 会基于已应用资产整理章节草稿，并作为 `paper` patch 等待用户应用。
+
+## 当前阶段：总控流程与自动下一步建议
+
+当前阶段重点不是再补一个单点生成能力，而是把已有 Agent 步骤串成更像“研究助理”的总控流程：
+
+- 根据当前资产状态判断下一步该做什么，而不是只靠用户找按钮
+- 在方向、模型、均衡、性质分析、论文输出之间给出清晰的自动下一步建议
+- 识别未应用 patch、资产过期、均衡失败、命题不足等阻塞原因，并解释该先处理什么
+- 让用户可以选择“一步步确认”或“在安全边界内继续推进到下一个待审批点”
+- 把总控决策、暂停原因和用户批准记录写入 Agent trace
+
+当前已经具备 v1：
+
+- `src/lib/research-agent/controller.ts` 会根据项目资产和待审核 patch 生成下一步建议。
+- 右侧工作台顶部会显示“下一步 / 需处理 / 已成稿”，说明为什么这样推进。
+- 有待审核 patch 时，总控建议会停在对应资产页，不会绕过审核继续生成。
+- 模型确认后可从统一建议入口进入符号均衡；均衡完成后进入性质分析；性质分析稳定后进入论文草稿。
+- “推进到审核点”会按安全计划连续执行：例如先确认模型，再生成均衡候选；一旦出现待审核 patch 就立即停下。
+- 连续推进不会替用户选择研究方向，也不会自动应用或拒绝任何 patch。
+- 每次 Agent 执行都会进入 `agentRunHistory`；“推进到审核点”也会记录计划、已执行步骤、停止原因、阻塞项和步骤检查点。
+- 右侧“来源”里的 Agent 执行记录会按计划步骤回放：每步展示状态、最近说明、检查点数、事件数和是否从 checkpoint 恢复过。
+- 右侧“来源”里的 Agent 执行记录支持按全部、异常、恢复、工具、模型和审核筛选，也可以展开完整 trace/checkpoint 元数据并导出 Markdown 审计记录。
+- 最近一次 AgentRun 如果处于失败、暂停或疑似运行中，右侧会显示恢复提示；能安全重试的步骤会给出“重试”，暂停但无待审核项时可“继续”，停在审核点时会引导先处理 patch，并显示最近检查点。
+- 对均衡、性质分析和论文草稿这类 Agent action，“重试”会带着原 `runId` 和 checkpoint 恢复执行，跳过已完成的准备步骤，并把新 trace 接回同一条 AgentRun 历史。
+- 已有论文草稿后，系统会把当前闭环标记为已成稿，方便用户继续编辑或导出。
+
+后续要加强的是更细的断点续跑执行、历史 trace 回放和自动修复，让用户能在更长的研究过程中回放和恢复 Agent 状态。
+
+## 未来 Agent 架构
+
+现有 `src/lib/ai-research-generation.ts` 保留为单步研究能力层。未来 Agent 编排层优先放在：
+
+```text
+src/lib/research-agent/
+  planner.ts
+  runner.ts
+  state.ts
+  guards.ts
+  trace.ts
+  tools/
+  prompts/
+```
+
+第一批工具会封装现有能力：
+
+- 发现研究方向
+- 构建理论模型
+- 求解符号均衡
+- 生成性质分析
+- 提出资产 patch
+- 应用或拒绝资产 patch
+
+联网工具会优先支持：
+
+- `web.search`
+- `web.fetchPage`
+- `literature.search`
+- `evidence.pack`（内部来源压缩工具，用户界面称为“来源依据”）
+
+完整路线见 [docs/agent-upgrade-plan.md](docs/agent-upgrade-plan.md)。
+
+## 安全边界
+
+联网检索必须保守实现：
+
+- 只允许 `http` 和 `https`
+- 禁止访问 localhost、内网 IP、metadata 地址和非公开网络
+- 设置请求超时、页面大小限制和抓取数量限制
+- 保留来源 URL、标题和抓取时间
+- 不把网页全文直接塞进模型，只传摘要、片段和引用信息
+- 优先使用搜索 API、OpenAlex、Semantic Scholar、Crossref、arXiv 等公开来源
+
+## 技术栈
+
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- lucide-react
+- shadcn/ui
+- Clerk
+- Neon + Drizzle ORM
+- KaTeX / react-markdown
+- DeepSeek / OpenAI / OpenAI-compatible / MiMo 模型来源
+
+## 本地开发
+
+本项目是从 PaperForge 派生出的干净副本，不包含 `.env.local`、`node_modules`、`.next`、`.vercel` 或原仓库 `.git`。
+
+```bash
+npm install
+npm run db:push
+npm run dev
+```
+
+然后打开 http://localhost:3000。
+
+## 环境变量
+
+从 `.env.example` 创建新的 `.env.local`。不要从原 PaperForge 直接复制私密环境变量到公共提交中。
+
+至少需要：
+
+```bash
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+
+DATABASE_URL=postgresql://...
+
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+服务端默认按 `DEEPSEEK_API_KEY` -> `OPENAI_COMPATIBLE_API_KEY` -> `MIMO_API_KEY` -> `OPENAI_API_KEY` 的顺序选择默认模型来源。
+
+联网搜索会优先查询 OpenAlex、Crossref 和 arXiv 等开放元数据源。OpenAlex 当前需要免费 API key；如需启用更稳定的 OpenAlex 检索，请设置：
+
+```bash
+OPENALEX_API_KEY=your_openalex_api_key
+```
+
+方向发现 Agent 会把中文研究想法扩展成多条英文检索 query，并可通过 Tavily 接入公开网页搜索。推荐使用 Tavily 控制台生成的远程 MCP 链接；未设置 `TAVILY_MCP_URL` 时会尝试 `TAVILY_API_KEY` REST API；两者都没有时，系统会自动降级为开放学术元数据搜索：
+
+```bash
+TAVILY_MCP_URL=https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-...
+TAVILY_API_KEY=your_tavily_api_key
+```
+
+`TAVILY_MCP_URL` 里包含密钥，只能放在本地 `.env.local` 或部署平台的私密环境变量里，不要提交到 Git。
+
+方向页右侧包含“来源”tab，可查看保留来源、检索 query 和 Agent 执行记录，便于判断是没有配置搜索 key、没有匹配结果、请求超时，还是候选 URL 被安全规则过滤。
+
+Agent 入口位于 `src/app/api/research/agent/route.ts`，新编排代码位于 `src/lib/research-agent/`。现有 `src/lib/ai-research-generation.ts` 仍保留为单步研究能力层；Agent 层会调用它生成候选结果，再负责计划、trace、自检和审批。`discover_directions`、`build_model`、`solve_equilibrium`、`analyze_properties` 和 `draft_paper` 已走 Agent 入口；`/api/research/generate` 继续用于对话续写等尚未 Agent 化的单步能力。
+
+## 质量检查
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm run build
+```
+
+如果只修改文档，至少运行 `git diff --check` 或等效的空白检查。
+
+## 当前状态
+
+截至 2026-05-24，“方向发现 Agent 化”“模型生成 Agent 化 v1”“均衡求解 Agent 化 v1”“性质分析 Agent 化 v1”“论文输出 Agent 化 v1”“总控流程 v1”“版本记忆 v1”“恢复建议/续跑 v1”和“trace 回放/审计 v1”已经进入可手测状态。当前 Agent 水平是：能围绕用户想法生成检索词，调用开放学术检索和 Tavily MCP/REST，整理来源依据，生成方向建议；用户采纳方向后，模型、均衡、性质分析和论文草稿都会经过 Agent 计划、自检、trace 和待审核 patch，应用前不会静默覆盖右侧资产；工作台会根据当前资产状态提示下一步，也能安全推进到下一个待审核点，并在有待审核修改建议时停下来，同时保留最近多次 Agent 执行记录、步骤检查点、步骤回放、总控停止原因和资产审核历史；执行记录可以按异常、恢复、工具、模型和审核筛选，展开完整元数据并导出 Markdown 审计记录；如果最近一次 AgentRun 失败、暂停或疑似中断，系统会给出带最近检查点的安全恢复建议，并可对部分 Agent action 沿用原 runId 续跑。
+
+版本历史现在会记录“应用/拒绝了哪条 patch、改了哪些路径、何时审核”，并为已应用记录保留原值/新值快照。右侧“历史”tab 可以查看差异，也可以从已应用记录生成“回滚建议”；回滚仍然是待审核 patch，不会自动覆盖资产。还没有完成的是完整研究 Agent loop：checkpoint 续跑目前从失败步骤重新执行，不恢复半个 HTTP 请求或后台长任务进程；执行记录导出仍是单次 AgentRun 级别，还没有跨项目、跨版本的完整审计报告。

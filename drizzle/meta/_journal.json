@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1777558424129,
+      "tag": "0000_windy_silverclaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778584741845,
+      "tag": "0001_absent_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779125098021,
+      "tag": "0002_hotelling_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779246953738,
+      "tag": "0003_smiling_true_believers",
+      "breakpoints": true
+    }
+  ]
+}
