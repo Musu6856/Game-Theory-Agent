@@ -240,6 +240,19 @@ function appendAssetVersionHistory(
     if (event.nextRecommendation) {
       lines.push(`- 后续建议：${event.nextRecommendation}`);
     }
+    if (event.impact) {
+      lines.push(
+        `- 影响摘要：${event.impact.summary}`,
+        `- 受影响资产：${formatAffectedAssetKinds(event.impact.affectedAssetKinds)}`,
+        `- 建议下一步：${event.impact.nextAction}`
+      );
+      if (event.impact.reviewFocus.length > 0) {
+        lines.push("", "#### 复核重点");
+        event.impact.reviewFocus.forEach((item) => {
+          lines.push(`- ${item}`);
+        });
+      }
+    }
     appendAssetChanges(lines, event.changes);
   });
 }
@@ -331,6 +344,11 @@ function formatAssetKind(kind: ResearchAssetKind) {
     case "paper":
       return "论文草稿";
   }
+}
+
+function formatAffectedAssetKinds(kinds: ResearchAssetKind[]) {
+  if (kinds.length === 0) return "无正式资产受影响";
+  return kinds.map(formatAssetKind).join("、");
 }
 
 function formatRunStatus(status: AgentRun["status"]) {

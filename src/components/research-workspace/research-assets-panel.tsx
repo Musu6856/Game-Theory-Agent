@@ -958,6 +958,11 @@ function formatPatchKind(kind: ResearchAssetKind) {
   }
 }
 
+function formatAffectedAssetKinds(kinds: ResearchAssetKind[]) {
+  if (kinds.length === 0) return "无正式资产受影响";
+  return kinds.map(formatPatchKind).join("、");
+}
+
 function formatChangeKind(kind: ResearchAssetVersionEvent["changes"][number]["kind"]) {
   switch (kind) {
     case "append":
@@ -1528,6 +1533,23 @@ function HistoryTab({
                 <p className="mt-2 rounded-sm border bg-card px-2 py-1.5 text-muted-foreground">
                   后续建议：{event.nextRecommendation}
                 </p>
+              ) : null}
+              {event.impact ? (
+                <div className="mt-2 rounded-sm border bg-card px-2 py-1.5 text-muted-foreground">
+                  <p>影响摘要：{event.impact.summary}</p>
+                  <p className="mt-1">
+                    受影响资产：
+                    {formatAffectedAssetKinds(event.impact.affectedAssetKinds)}
+                  </p>
+                  <p className="mt-1">建议下一步：{event.impact.nextAction}</p>
+                  {event.impact.reviewFocus.length > 0 ? (
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {event.impact.reviewFocus.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ) : null}
               {canRollback ? (
                 <div className="mt-3">

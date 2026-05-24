@@ -130,6 +130,16 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
           createdAt: 1710000000500,
           approvedBy: "user",
           nextRecommendation: "论文草稿已写入；下一步可以导出 Markdown。",
+          impact: {
+            summary:
+              "论文草稿已更新；正式模型、均衡和性质分析不受影响，重点复核文字组织、引用和导出。",
+            affectedAssetKinds: [],
+            reviewFocus: [
+              "复核章节结构、命题引用、证明叙述和来源引用是否一致。",
+              "确认导出的 Markdown 是否符合当前写作目标。",
+            ],
+            nextAction: "导出或继续改写论文",
+          },
         },
       ],
     },
@@ -149,6 +159,8 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
   assert.match(markdown, /生成论文草稿/);
   assert.match(markdown, /## 资产审核历史/);
   assert.match(markdown, /后续建议：论文草稿已写入/);
+  assert.match(markdown, /影响摘要：论文草稿已更新/);
+  assert.match(markdown, /建议下一步：导出或继续改写论文/);
   assert.match(markdown, /"patchId": "patch-paper"/);
 });
 

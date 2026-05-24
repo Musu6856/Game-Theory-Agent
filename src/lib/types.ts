@@ -263,6 +263,14 @@ export interface ResearchAssetVersionEvent {
   note?: string;
   rejectionReason?: string;
   nextRecommendation?: string;
+  impact?: ResearchAssetVersionImpact;
+}
+
+export interface ResearchAssetVersionImpact {
+  summary: string;
+  affectedAssetKinds: ResearchAssetKind[];
+  reviewFocus: string[];
+  nextAction: string;
 }
 
 export interface ResearchAssetPatchInput {

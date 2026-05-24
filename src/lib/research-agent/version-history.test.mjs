@@ -60,6 +60,11 @@ test("records applied asset patch as an auditable version event", () => {
   assert.equal(event?.createdAt, 1710000000002);
   assert.equal(event?.note, "修正闭式解。");
   assert.match(event?.nextRecommendation ?? "", /性质分析/);
+  assert.equal(
+    event?.impact?.summary,
+    "均衡结果已变更；依赖旧闭式解或旧存在条件的性质分析和论文命题需要复核。"
+  );
+  assert.deepEqual(event?.impact?.affectedAssetKinds, ["properties", "paper"]);
   assert.deepEqual(event?.changes, [
     {
       kind: "replace",
@@ -120,7 +125,21 @@ test("records review follow-up guidance for applied model and paper patches", ()
     afterPaper.researchSession?.assetVersionHistory ?? [];
 
   assert.match(modelEvent?.nextRecommendation ?? "", /重新生成符号均衡/);
+  assert.equal(
+    modelEvent?.impact?.summary,
+    "模型设定已变更；后续均衡、性质分析和论文草稿都可能仍然依赖旧模型，需要重新串联。"
+  );
+  assert.deepEqual(modelEvent?.impact?.affectedAssetKinds, [
+    "equilibrium",
+    "properties",
+    "paper",
+  ]);
   assert.match(paperEvent?.nextRecommendation ?? "", /导出 Markdown|继续改写/);
+  assert.equal(
+    paperEvent?.impact?.summary,
+    "论文草稿已更新；正式模型、均衡和性质分析不受影响，重点复核文字组织、引用和导出。"
+  );
+  assert.deepEqual(paperEvent?.impact?.affectedAssetKinds, []);
 });
 
 test("records rejected asset patch without pretending assets changed", () => {
@@ -160,6 +179,11 @@ test("records rejected asset patch without pretending assets changed", () => {
   assert.deepEqual(event?.changes[0]?.value, ["平台单归属"]);
   assert.deepEqual(event?.changes[0]?.previousValue, undefined);
   assert.match(event?.nextRecommendation ?? "", /回到当前阶段/);
+  assert.equal(
+    event?.impact?.summary,
+    "这条修改建议已被拒绝；正式研究资产没有变化，后续流程仍以拒绝前的资产为准。"
+  );
+  assert.deepEqual(event?.impact?.affectedAssetKinds, []);
 });
 
 test("creates a reviewable rollback patch from an applied version event", () => {

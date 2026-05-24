@@ -164,6 +164,7 @@ function createPatchReviewVersionEvent({
       ? { rejectionReason }
       : {}),
     nextRecommendation: getReviewNextRecommendation(patch.kind, status),
+    impact: getReviewImpact(patch.kind, status),
   };
 }
 
@@ -184,6 +185,74 @@ function getReviewNextRecommendation(
       return "性质分析已变更；下一步可以整理论文草稿，或继续检查命题条件。";
     case "paper":
       return "论文草稿已写入；下一步可以导出 Markdown，或继续改写章节与引用。";
+  }
+}
+
+function getReviewImpact(
+  kind: ResearchAssetPatch["kind"],
+  status: Extract<ResearchAssetPatchStatus, "applied" | "rejected">
+): ResearchAssetVersionEvent["impact"] {
+  if (status === "rejected") {
+    return {
+      summary:
+        "这条修改建议已被拒绝；正式研究资产没有变化，后续流程仍以拒绝前的资产为准。",
+      affectedAssetKinds: [],
+      reviewFocus: [
+        "确认拒绝原因是否已经解决，或是否需要重新生成更贴合当前方向的候选。",
+        "继续推进前仍以当前已应用资产为准，不引用被拒绝的候选内容。",
+      ],
+      nextAction: "回到当前阶段继续推进",
+    };
+  }
+
+  switch (kind) {
+    case "model":
+      return {
+        summary:
+          "模型设定已变更；后续均衡、性质分析和论文草稿都可能仍然依赖旧模型，需要重新串联。",
+        affectedAssetKinds: ["equilibrium", "properties", "paper"],
+        reviewFocus: [
+          "复核参与者、策略变量、效用函数、利润函数、时序和参数约束。",
+          "重新生成符号均衡，避免旧 FOC 或旧闭式解继续进入后续分析。",
+          "重新检查性质分析和论文草稿中引用的机制解释是否仍然成立。",
+        ],
+        nextAction: "重新生成符号均衡",
+      };
+    case "equilibrium":
+      return {
+        summary:
+          "均衡结果已变更；依赖旧闭式解或旧存在条件的性质分析和论文命题需要复核。",
+        affectedAssetKinds: ["properties", "paper"],
+        reviewFocus: [
+          "复核闭式解、反应函数、一阶条件和存在条件是否互相一致。",
+          "重新生成或复核性质分析，避免沿用旧均衡下的比较静态。",
+          "检查论文草稿中的命题、证明和经济直觉是否仍然引用新均衡。",
+        ],
+        nextAction: "重新生成性质分析",
+      };
+    case "properties":
+      return {
+        summary:
+          "性质分析已变更；论文草稿中的命题、证明草图和经济直觉需要跟随更新。",
+        affectedAssetKinds: ["paper"],
+        reviewFocus: [
+          "复核每条命题的符号结果、符号条件、证明草图和经济直觉。",
+          "检查论文草稿是否引用了被替换或删除的旧命题。",
+          "必要时重新生成论文草稿，保持章节叙述和性质分析一致。",
+        ],
+        nextAction: "复核或重写论文草稿",
+      };
+    case "paper":
+      return {
+        summary:
+          "论文草稿已更新；正式模型、均衡和性质分析不受影响，重点复核文字组织、引用和导出。",
+        affectedAssetKinds: [],
+        reviewFocus: [
+          "复核章节结构、命题引用、证明叙述和来源引用是否一致。",
+          "确认导出的 Markdown 是否符合当前写作目标。",
+        ],
+        nextAction: "导出或继续改写论文",
+      };
   }
 }
 
