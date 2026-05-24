@@ -6,6 +6,7 @@ import type {
   ResearchAssetChange,
   ResearchProject,
 } from "../types";
+import { verifyPropertyAnalysisMathConsistency } from "./math-verifier.ts";
 import type {
   ResearchCompletionClient,
   ResearchGenerationRequest,
@@ -155,7 +156,10 @@ export async function runPropertyAnalysisAgent(
   agentRun = updateStepStatus(agentRun, "draft-properties", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-properties", "running", now);
-  let review = reviewPropertyAnalysisCandidates(candidateAnalyses);
+  let review = reviewPropertyAnalysisCandidates(
+    candidateAnalyses,
+    request.project
+  );
   if (!review.ok) {
     agentRun = appendTraceEvent(
       agentRun,
@@ -183,7 +187,10 @@ export async function runPropertyAnalysisAgent(
     const repairedAnalyses = repairResult.project.propertyAnalyses ?? [];
 
     if (repairedAnalyses.length > 0) {
-      const repairReview = reviewPropertyAnalysisCandidates(repairedAnalyses);
+      const repairReview = reviewPropertyAnalysisCandidates(
+        repairedAnalyses,
+        request.project
+      );
       agentRun = appendTraceEvent(
         agentRun,
         {
@@ -297,7 +304,10 @@ export async function runPropertyAnalysisAgent(
   };
 }
 
-function reviewPropertyAnalysisCandidates(analyses: PropertyAnalysis[]) {
+function reviewPropertyAnalysisCandidates(
+  analyses: PropertyAnalysis[],
+  project: ResearchProject
+) {
   const issues: string[] = [];
 
   if (analyses.length < 3) {
@@ -334,6 +344,14 @@ function reviewPropertyAnalysisCandidates(analyses: PropertyAnalysis[]) {
       issues.push(`第 ${index + 1} 条缺少证明草图。`);
     }
   });
+
+  issues.push(
+    ...verifyPropertyAnalysisMathConsistency({
+      model: project.hotellingModel,
+      equilibrium: project.equilibriumResult,
+      analyses,
+    }).issues
+  );
 
   return {
     ok: issues.length === 0,

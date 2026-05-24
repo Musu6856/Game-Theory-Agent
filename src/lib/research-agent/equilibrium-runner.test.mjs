@@ -417,3 +417,86 @@ test("equilibrium solving agent retries once when self-review finds repairable r
     true
   );
 });
+
+test("equilibrium solving agent repairs candidates with ungrounded math symbols", async () => {
+  const project = createConfirmedProject();
+  const riskyEquilibrium = {
+    status: "solved",
+    concept: "未校验符号均衡",
+    solvingSteps: ["对 p_A 求一阶条件", "联立求解"],
+    focs: ["partial Pi_A / partial p_A = 0"],
+    conditions: ["q > 0"],
+    closedForm: "p_A^* = beta_X / q",
+    derivation: "由 FOC 得到 p_A^*。",
+    code: "sp.solve([foc_p_A], [p_A])",
+    warnings: [],
+  };
+  const repairedEquilibrium = {
+    status: "solved",
+    concept: "修复后的符号均衡",
+    solvingSteps: ["对 tau_A 求一阶条件", "联立求解"],
+    focs: ["partial Pi_A / partial tau_A = 0"],
+    conditions: ["q > 0"],
+    closedForm: "tau_A^* = alpha_B / q",
+    derivation: "由 FOC 得到 tau_A^*。",
+    code: "sp.solve([foc_tau_A], [tau_A])",
+    warnings: [],
+  };
+  let attempts = 0;
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-math-repair-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => {
+        attempts += 1;
+        const equilibrium =
+          attempts === 1 ? riskyEquilibrium : repairedEquilibrium;
+        return {
+          project: {
+            ...project,
+            equilibriumResult: equilibrium,
+            researchSession: {
+              ...project.researchSession,
+              phase: "equilibrium",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus: equilibrium.status,
+                nextActions: ["检查符号均衡推导", "生成性质分析"],
+                pendingDecision: {
+                  kind: "analyze_properties",
+                  prompt: "符号均衡结果已经生成。",
+                },
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "均衡候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const equilibriumChange = patch?.changes.find(
+    (change) => change.path === "equilibriumResult"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(equilibriumChange?.value, repairedEquilibrium);
+  assert.equal(
+    result.agentRun.trace.some((event) =>
+      String(event.metadata?.issues ?? "").includes("未定义的符号")
+    ),
+    true
+  );
+});

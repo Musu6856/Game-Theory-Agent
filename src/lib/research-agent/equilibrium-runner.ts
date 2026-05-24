@@ -6,6 +6,7 @@ import type {
   ResearchAssetChange,
   ResearchProject,
 } from "../types";
+import { verifyEquilibriumMathConsistency } from "./math-verifier.ts";
 import type {
   ResearchCompletionClient,
   ResearchGenerationRequest,
@@ -158,7 +159,10 @@ export async function runEquilibriumSolvingAgent(
   agentRun = updateStepStatus(agentRun, "draft-equilibrium", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-equilibrium", "running", now);
-  let review = reviewEquilibriumCandidate(candidateEquilibrium);
+  let review = reviewEquilibriumCandidate(
+    candidateEquilibrium,
+    request.project
+  );
   if (!review.ok) {
     agentRun = appendTraceEvent(
       agentRun,
@@ -186,7 +190,10 @@ export async function runEquilibriumSolvingAgent(
     const repairedEquilibrium = repairResult.project.equilibriumResult;
 
     if (repairedEquilibrium) {
-      const repairReview = reviewEquilibriumCandidate(repairedEquilibrium);
+      const repairReview = reviewEquilibriumCandidate(
+        repairedEquilibrium,
+        request.project
+      );
       agentRun = appendTraceEvent(
         agentRun,
         {
@@ -300,7 +307,10 @@ export async function runEquilibriumSolvingAgent(
   };
 }
 
-function reviewEquilibriumCandidate(equilibrium: EquilibriumResult) {
+function reviewEquilibriumCandidate(
+  equilibrium: EquilibriumResult,
+  project: ResearchProject
+) {
   const issues: string[] = [];
 
   if (equilibrium.status !== "solved") {
@@ -322,6 +332,13 @@ function reviewEquilibriumCandidate(equilibrium: EquilibriumResult) {
   if (equilibrium.conditions.length === 0) {
     issues.push("缺少存在条件或内点条件。");
   }
+
+  issues.push(
+    ...verifyEquilibriumMathConsistency({
+      model: project.hotellingModel,
+      equilibrium,
+    }).issues
+  );
 
   return {
     ok: issues.length === 0,

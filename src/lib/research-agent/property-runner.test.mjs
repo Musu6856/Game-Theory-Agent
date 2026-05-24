@@ -294,3 +294,75 @@ test("property analysis agent retries once when self-review finds repairable ris
     true
   );
 });
+
+test("property analysis agent repairs candidates with ungrounded math symbols", async () => {
+  const project = createSolvedProject();
+  const riskyAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 0
+      ? {
+          ...analysis,
+          id: "unknown-price-effect",
+          target: "p_A^*",
+          parameter: "beta_X",
+          symbolicResult: "partial p_A^* / partial beta_X = 1/q",
+          proofSketch: "对 p_A^* 关于 beta_X 求偏导。",
+        }
+      : analysis
+  );
+  const repairedAnalyses = createCandidateAnalyses();
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "property-agent-math-repair-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        const analyses = attempts === 1 ? riskyAnalyses : repairedAnalyses;
+        return {
+          project: {
+            ...project,
+            propertyAnalyses: analyses,
+            researchSession: {
+              ...project.researchSession,
+              phase: "analysis",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus:
+                  project.researchSession?.assetSummary.equilibriumStatus ??
+                  "solved",
+                nextActions: ["检查命题条件", "整理论文草稿"],
+                pendingDecision: undefined,
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "性质分析候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const propertyChange = patch?.changes.find(
+    (change) => change.path === "propertyAnalyses"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(propertyChange?.value, repairedAnalyses);
+  assert.equal(
+    result.agentRun.trace.some((event) =>
+      String(event.metadata?.issues ?? "").includes("未出现的符号")
+    ),
+    true
+  );
+});
