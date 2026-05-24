@@ -2,6 +2,10 @@ import {
   getResearchFlowState,
   type ResearchAssetsTab,
 } from "../research-flow.ts";
+import {
+  getResearchAssetPatchReviewLoad,
+  type ResearchAssetPatchReviewLoad,
+} from "../research-pending-patches-layout.ts";
 import type {
   ResearchAssetKind,
   ResearchProject,
@@ -29,6 +33,7 @@ export type NextAgentBlocker = {
   label: string;
   description: string;
   patchKind?: ResearchAssetKind;
+  reviewLoad?: ResearchAssetPatchReviewLoad;
 };
 
 export type SafeContinuationStep = {
@@ -171,16 +176,19 @@ export function recommendNextAgentStep(
     (patch) => patch.status === "proposed"
   );
   if (pendingPatch) {
+    const reviewLoad = getResearchAssetPatchReviewLoad(pendingPatch);
+
     return {
       status: "blocked",
       title: "先审阅修改建议",
-      reason: `当前有一条${formatPatchKind(pendingPatch.kind)}修改建议还没有处理。Agent 不会绕过审核继续推进。`,
+      reason: `当前有一条${formatPatchKind(pendingPatch.kind)}修改建议还没有处理：${reviewLoad.label}。Agent 不会绕过审核继续推进。`,
       targetTab: getTabForPatchKind(pendingPatch.kind),
       blocker: {
         kind: "pending_patch",
-        label: "等待人工审核",
-        description: "先应用或拒绝右侧待审核修改建议，再继续下一步。",
+        label: reviewLoad.label,
+        description: `${reviewLoad.label}：${reviewLoad.reason} 处理后再继续下一步。`,
         patchKind: pendingPatch.kind,
+        reviewLoad,
       },
     };
   }

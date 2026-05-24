@@ -35,6 +35,34 @@ test("controller blocks continuation while a model patch is waiting for review",
   assert.match(recommendation.reason, /修改建议/);
 });
 
+test("controller distinguishes quick paper review from high attention asset review", () => {
+  const project = withPendingPatch(
+    generatePropertyAnalysis(
+      generateSymbolicEquilibrium(
+        confirmResearchModel(
+          adoptResearchDirection(
+            createExplorationProject({
+              id: "11111111-1111-4111-8111-111111111111",
+              rawIdea: "研究二手平台佣金与补贴策略",
+              now: 1710000000000,
+            }),
+            "secondhand-commission-subsidy-hotelling"
+          )
+        )
+      )
+    ),
+    "paper"
+  );
+
+  const recommendation = recommendNextAgentStep(project);
+
+  assert.equal(recommendation.status, "blocked");
+  assert.equal(recommendation.blocker?.kind, "pending_patch");
+  assert.equal(recommendation.blocker?.patchKind, "paper");
+  assert.equal(recommendation.blocker?.reviewLoad?.level, "low");
+  assert.match(recommendation.blocker?.description ?? "", /快速审核/);
+});
+
 test("controller recommends adopting a direction before model generation", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
