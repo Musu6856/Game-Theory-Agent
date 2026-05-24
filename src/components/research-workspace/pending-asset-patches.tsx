@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Eye, X } from "lucide-react";
+import { Check, CheckCheck, Eye, X } from "lucide-react";
 
 import type { ResearchAssetPatch } from "@/lib/types";
 import {
@@ -13,6 +13,7 @@ import {
 import {
   getPendingAssetPatchPanelClassName,
   getPendingAssetPatchesForDisplay,
+  getQuickReviewAssetPatchesForDisplay,
   getResearchAssetPatchReviewLoad,
   type ResearchAssetPatchReviewLoad,
 } from "@/lib/research-pending-patches-layout";
@@ -21,6 +22,7 @@ type PendingAssetPatchesProps = {
   patches: ResearchAssetPatch[];
   onReview?: (patchId: string) => void;
   onApply?: (patchId: string) => void;
+  onApplyQuickReview?: (patchIds: string[]) => void;
   onReject?: (patchId: string) => void;
 };
 
@@ -28,16 +30,33 @@ export function PendingAssetPatches({
   patches,
   onReview,
   onApply,
+  onApplyQuickReview,
   onReject,
 }: PendingAssetPatchesProps) {
   const proposed = getPendingAssetPatchesForDisplay(patches);
+  const quickReviewPatches = getQuickReviewAssetPatchesForDisplay(patches);
 
   if (proposed.length === 0) return null;
 
   return (
     <section className={getPendingAssetPatchPanelClassName()}>
-      <div className="mb-2 text-xs font-medium text-muted-foreground">
-        待应用修改
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-xs font-medium text-muted-foreground">
+          待应用修改
+        </div>
+        {quickReviewPatches.length > 0 ? (
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-300/70 bg-emerald-50 px-2 text-xs font-medium text-emerald-800 disabled:opacity-50 dark:border-emerald-400/35 dark:bg-emerald-500/15 dark:text-emerald-200"
+            disabled={!onApplyQuickReview}
+            onClick={() =>
+              onApplyQuickReview?.(quickReviewPatches.map((patch) => patch.id))
+            }
+          >
+            <CheckCheck size={13} />
+            应用快速审核项（{quickReviewPatches.length}）
+          </button>
+        ) : null}
       </div>
       <div className="space-y-2">
         {proposed.map((patch) => {

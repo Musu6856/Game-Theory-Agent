@@ -1,6 +1,7 @@
 import { markResearchAssetsStaleAfterModelEdit } from "./research-flow.ts";
 import { recordPatchReviewVersion } from "./research-agent/version-history.ts";
 import { applyModelPatchToHotellingModel } from "./research-model-patch.ts";
+import { getQuickReviewAssetPatchesForApply } from "./research-pending-patches-layout.ts";
 import {
   createInitialResearchSession,
   createSymbolicEquilibriumScaffoldResult,
@@ -17,6 +18,11 @@ import type {
 
 type ApplyResearchAssetPatchOptions = {
   now?: number;
+};
+
+type ApplyQuickReviewAssetPatchesResult = {
+  project: ResearchProject;
+  appliedCount: number;
 };
 
 const EQUILIBRIUM_ARRAY_FIELD_NAMES = [
@@ -95,6 +101,31 @@ export function applyResearchAssetPatchToProject(
   }
 
   return projectWithAppliedStatus;
+}
+
+export function applyQuickReviewAssetPatchesToProject(
+  project: ResearchProject,
+  patchIds: string[],
+  options: ApplyResearchAssetPatchOptions = {}
+): ApplyQuickReviewAssetPatchesResult {
+  const requestedIds = new Set(patchIds);
+  const session = project.researchSession ?? createInitialResearchSession(project.rawIdea);
+  const quickReviewPatches = getQuickReviewAssetPatchesForApply(
+    session.assetPatches ?? []
+  ).filter((patch) => requestedIds.has(patch.id));
+
+  let nextProject = project;
+  const now = options.now ?? Date.now();
+  quickReviewPatches.forEach((patch, index) => {
+    nextProject = applyResearchAssetPatchToProject(nextProject, patch, {
+      now: now + index,
+    });
+  });
+
+  return {
+    project: nextProject,
+    appliedCount: quickReviewPatches.length,
+  };
 }
 
 export function markProjectPatchStatus(

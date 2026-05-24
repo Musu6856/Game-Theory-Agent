@@ -8,6 +8,7 @@ import {
   generateSymbolicEquilibrium,
 } from "./research-session.ts";
 import {
+  applyQuickReviewAssetPatchesToProject,
   applyResearchAssetPatchToProject,
   markProjectPatchStatus,
 } from "./research-asset-patch-apply.ts";
@@ -155,6 +156,99 @@ test("applies a paper patch to the right-side draft sections", () => {
     nextProject.researchSession?.messages
       .at(-1)
       ?.content.includes("论文草稿")
+  );
+});
+
+test("quick review application only applies low-risk paper patches", () => {
+  const project = createSolvedProject();
+  const modelPatch = {
+    id: "patch-model",
+    kind: "model",
+    summary: "修改模型",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "append",
+        path: "hotellingModel.assumptions",
+        value: "这条核心模型修改不应被快速应用。",
+      },
+    ],
+  };
+  const riskyPaperPatch = {
+    id: "patch-paper-risk",
+    kind: "paper",
+    summary: "论文草稿但带数学风险",
+    status: "proposed",
+    createdAt: 1710000000002,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections",
+        value: [],
+        note: "Agent 自检提示：符号条件不足。",
+      },
+    ],
+  };
+  const quickPaperPatch = {
+    id: "patch-paper-quick",
+    kind: "paper",
+    summary: "生成论文草稿章节",
+    status: "proposed",
+    createdAt: 1710000000003,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections",
+        value: [
+          {
+            id: "intro",
+            title: "引言",
+            content: "本文研究二手交易平台佣金与补贴策略。",
+            status: "generated",
+          },
+        ],
+      },
+    ],
+  };
+  const projectWithPatches = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      assetPatches: [
+        ...(project.researchSession?.assetPatches ?? []),
+        modelPatch,
+        riskyPaperPatch,
+        quickPaperPatch,
+      ],
+    },
+  };
+
+  const result = applyQuickReviewAssetPatchesToProject(
+    projectWithPatches,
+    ["patch-model", "patch-paper-risk", "patch-paper-quick"],
+    { now: 1710000000010 }
+  );
+
+  assert.equal(result.appliedCount, 1);
+  assert.equal(result.project.sections[0]?.id, "intro");
+  assert.equal(
+    result.project.researchSession?.assetPatches?.find(
+      (patch) => patch.id === "patch-paper-quick"
+    )?.status,
+    "applied"
+  );
+  assert.equal(
+    result.project.researchSession?.assetPatches?.find(
+      (patch) => patch.id === "patch-model"
+    )?.status,
+    "proposed"
+  );
+  assert.equal(
+    result.project.researchSession?.assetPatches?.find(
+      (patch) => patch.id === "patch-paper-risk"
+    )?.status,
+    "proposed"
   );
 });
 

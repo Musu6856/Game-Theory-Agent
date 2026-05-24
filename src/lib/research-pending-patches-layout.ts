@@ -18,6 +18,22 @@ export function getPendingAssetPatchesForDisplay<
     .sort((left, right) => right.createdAt - left.createdAt);
 }
 
+export function getQuickReviewAssetPatchesForDisplay<
+  T extends Pick<ResearchAssetPatch, "status" | "createdAt" | "kind" | "changes" | "summary">
+>(patches: T[]): T[] {
+  return getPendingAssetPatchesForDisplay(patches).filter(
+    (patch) => getResearchAssetPatchReviewLoad(patch).level === "low"
+  );
+}
+
+export function getQuickReviewAssetPatchesForApply<
+  T extends Pick<ResearchAssetPatch, "status" | "createdAt" | "kind" | "changes" | "summary">
+>(patches: T[]): T[] {
+  return getQuickReviewAssetPatchesForDisplay(patches).slice().sort(
+    (left, right) => left.createdAt - right.createdAt
+  );
+}
+
 export function getResearchAssetPatchReviewLoad(
   patch: Pick<ResearchAssetPatch, "kind" | "changes" | "summary">
 ): ResearchAssetPatchReviewLoad {

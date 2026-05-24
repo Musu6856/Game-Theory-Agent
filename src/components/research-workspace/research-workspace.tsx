@@ -31,6 +31,7 @@ import { appendSafeContinuationTrace } from "@/lib/research-agent/trace";
 import { proposeRollbackPatchFromVersionEvent } from "@/lib/research-agent/version-history";
 import type { AgentRecoverySuggestion } from "@/lib/research-agent/recovery";
 import {
+  applyQuickReviewAssetPatchesToProject,
   applyResearchAssetPatchToProject,
   markProjectPatchStatus,
 } from "@/lib/research-asset-patch-apply";
@@ -698,6 +699,26 @@ export function ResearchWorkspace({
     });
   }
 
+  async function handleApplyQuickReviewAssetPatches(patchIds: string[]) {
+    const currentProject = displayedProject ?? activeProject;
+    if (!currentProject?.researchSession || isBusy) return;
+
+    const result = applyQuickReviewAssetPatchesToProject(
+      currentProject,
+      patchIds
+    );
+
+    if (result.appliedCount === 0) {
+      toast.info("没有可快速应用的修改建议");
+      return;
+    }
+
+    await persistGeneratedProject(result.project);
+    toast.success(`已应用 ${result.appliedCount} 条快速审核项`, {
+      description: "只处理论文草稿等低风险修改；核心资产仍需逐条审阅。",
+    });
+  }
+
   async function handleRejectAssetPatch(patchId: string) {
     const currentProject = displayedProject ?? activeProject;
     if (!currentProject?.researchSession) return;
@@ -796,6 +817,7 @@ export function ResearchWorkspace({
             onSaveModelAssumptions={handleSaveModelAssumptions}
             onSaveModelSymbols={handleSaveModelSymbols}
             onApplyAssetPatch={handleApplyAssetPatch}
+            onApplyQuickReviewAssetPatches={handleApplyQuickReviewAssetPatches}
             onRejectAssetPatch={handleRejectAssetPatch}
             onRollbackVersion={handleRollbackVersion}
             isCollapsed={isCollapsed}

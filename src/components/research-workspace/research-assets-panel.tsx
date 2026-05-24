@@ -87,6 +87,7 @@ type ResearchAssetsPanelProps = {
   onSaveModelAssumptions?: (assumptions: string[]) => Promise<void> | void;
   onSaveModelSymbols?: (symbols: NonNullable<ResearchProject["hotellingModel"]>["symbols"]) => Promise<void> | void;
   onApplyAssetPatch?: (patchId: string) => void;
+  onApplyQuickReviewAssetPatches?: (patchIds: string[]) => void;
   onRejectAssetPatch?: (patchId: string) => void;
   onRollbackVersion?: (eventId: string) => void;
   isCollapsed?: boolean;
@@ -133,6 +134,7 @@ function ResearchAssetsPanelContent({
   onSaveModelAssumptions,
   onSaveModelSymbols,
   onApplyAssetPatch,
+  onApplyQuickReviewAssetPatches,
   onRejectAssetPatch,
   onRollbackVersion,
   isCollapsed,
@@ -285,6 +287,7 @@ function ResearchAssetsPanelContent({
         patches={session.assetPatches ?? []}
         onReview={handleReviewAssetPatch}
         onApply={handleApplyAssetPatch}
+        onApplyQuickReview={onApplyQuickReviewAssetPatches}
         onReject={onRejectAssetPatch}
       />
 

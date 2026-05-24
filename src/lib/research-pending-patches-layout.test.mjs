@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   getPendingAssetPatchPanelClassName,
   getPendingAssetPatchesForDisplay,
+  getQuickReviewAssetPatchesForApply,
+  getQuickReviewAssetPatchesForDisplay,
   getResearchAssetPatchReviewLoad,
 } from "./research-pending-patches-layout.ts";
 
@@ -87,4 +89,87 @@ test("pending asset patches elevate math-risk property reviews", () => {
 
   assert.equal(load.level, "high");
   assert.match(load.reason, /数学/);
+});
+
+test("pending asset patches expose only low-risk drafts for quick review", () => {
+  const patches = [
+    {
+      id: "model",
+      kind: "model",
+      status: "proposed",
+      createdAt: 30,
+      summary: "模型修改",
+      changes: [{ kind: "replace", path: "hotellingModel", value: {} }],
+    },
+    {
+      id: "paper-risk",
+      kind: "paper",
+      status: "proposed",
+      createdAt: 40,
+      summary: "论文草稿",
+      changes: [
+        {
+          kind: "replace",
+          path: "sections",
+          value: [],
+          note: "Agent 自检提示：符号条件不足。",
+        },
+      ],
+    },
+    {
+      id: "paper-new",
+      kind: "paper",
+      status: "proposed",
+      createdAt: 20,
+      summary: "论文草稿",
+      changes: [{ kind: "replace", path: "sections", value: [] }],
+    },
+    {
+      id: "paper-old",
+      kind: "paper",
+      status: "proposed",
+      createdAt: 10,
+      summary: "论文草稿",
+      changes: [{ kind: "append", path: "sections", value: [] }],
+    },
+    {
+      id: "paper-applied",
+      kind: "paper",
+      status: "applied",
+      createdAt: 50,
+      summary: "论文草稿",
+      changes: [{ kind: "replace", path: "sections", value: [] }],
+    },
+  ];
+
+  assert.deepEqual(
+    getQuickReviewAssetPatchesForDisplay(patches).map((patch) => patch.id),
+    ["paper-new", "paper-old"]
+  );
+});
+
+test("pending asset patches apply quick reviews from oldest to newest", () => {
+  const patches = [
+    {
+      id: "paper-new",
+      kind: "paper",
+      status: "proposed",
+      createdAt: 20,
+      summary: "论文草稿",
+      changes: [{ kind: "replace", path: "sections", value: [] }],
+    },
+    {
+      id: "paper-old",
+      kind: "paper",
+      status: "proposed",
+      createdAt: 10,
+      summary: "论文草稿",
+      changes: [{ kind: "append", path: "sections", value: [] }],
+    },
+  ];
+
+  assert.deepEqual(
+    getQuickReviewAssetPatchesForApply(patches).map((patch) => patch.id),
+    ["paper-old", "paper-new"]
+  );
 });
