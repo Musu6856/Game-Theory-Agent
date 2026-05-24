@@ -83,6 +83,7 @@ export function verifyPropertyAnalysisMathConsistency({
 
   issues.push(
     ...verifyPropertyCalculusConsistency({
+      model,
       equilibrium,
       analyses,
     }).issues
@@ -95,9 +96,11 @@ export function verifyPropertyAnalysisMathConsistency({
 }
 
 function verifyPropertyCalculusConsistency({
+  model,
   equilibrium,
   analyses,
 }: {
+  model?: HotellingModel;
   equilibrium?: EquilibriumResult;
   analyses: PropertyAnalysis[];
 }): MathVerificationResult {
@@ -132,6 +135,26 @@ function verifyPropertyCalculusConsistency({
     if (!areEquivalentExpressions(expected, claimed)) {
       issues.push(
         `第 ${index + 1} 条性质分析的偏导复算不一致：根据均衡闭式解，${analysis.target} 对 ${analysis.parameter} 的偏导应为 ${formatExpression(expected)}，但候选写成 ${formatExpression(claimed)}。`
+      );
+      return;
+    }
+
+    const expectedSign = inferExpressionSign(
+      expected,
+      collectSignAssumptions({
+        model,
+        equilibrium,
+        signCondition: analysis.signCondition,
+      })
+    );
+    const claimedSign = parseClaimedSign(analysis.signCondition);
+    if (
+      expectedSign !== "unknown" &&
+      claimedSign !== "unknown" &&
+      expectedSign !== claimedSign
+    ) {
+      issues.push(
+        `第 ${index + 1} 条性质分析的符号条件与偏导复算不一致：根据均衡闭式解和已知参数条件，${analysis.target} 对 ${analysis.parameter} 的偏导应为${formatSign(expectedSign)}，但候选符号条件写成${formatSign(claimedSign)}。`
       );
     }
   });
@@ -449,6 +472,150 @@ function areEquivalentExpressions(
   }
 
   return true;
+}
+
+type ExpressionSign = "positive" | "negative" | "zero" | "unknown";
+
+function collectSignAssumptions({
+  model,
+  equilibrium,
+  signCondition,
+}: {
+  model?: HotellingModel;
+  equilibrium?: EquilibriumResult;
+  signCondition: string;
+}) {
+  const assumptions = new Map<string, ExpressionSign>();
+
+  (model?.symbols ?? []).forEach((symbol) => {
+    const sign = parseAssumptionSign(symbol.assumption);
+    if (sign === "unknown") return;
+    getSymbolAliases(symbol).forEach((alias) => {
+      assumptions.set(alias, sign);
+    });
+  });
+
+  [
+    ...(model?.assumptions ?? []),
+    ...(equilibrium?.conditions ?? []),
+    signCondition,
+  ].forEach((value) => {
+    parseTextSignAssumptions(value).forEach((sign, symbol) => {
+      assumptions.set(symbol, sign);
+    });
+  });
+
+  return assumptions;
+}
+
+function inferExpressionSign(
+  expression: AlgebraExpression | null,
+  assumptions: Map<string, ExpressionSign>
+): ExpressionSign {
+  if (!expression) return "unknown";
+
+  const entries = [...expression.entries()].filter(
+    ([, coefficient]) => Math.abs(coefficient) > 1e-12
+  );
+  if (entries.length === 0) return "zero";
+  if (entries.length > 1) return "unknown";
+
+  const [[term, coefficient]] = entries;
+  let sign = coefficient > 0 ? 1 : -1;
+  if (term === "1") return sign > 0 ? "positive" : "negative";
+
+  const factorSigns = term.split("*").filter(Boolean);
+  for (const factor of factorSigns) {
+    const factorSign = inferFactorSign(factor, assumptions);
+    if (factorSign === "unknown") return "unknown";
+    if (factorSign === "zero") return "zero";
+    if (factorSign === "negative") sign *= -1;
+  }
+
+  return sign > 0 ? "positive" : "negative";
+}
+
+function inferFactorSign(
+  factor: string,
+  assumptions: Map<string, ExpressionSign>
+): ExpressionSign {
+  const normalized = canonicalFactor(factor);
+  if (normalized.startsWith("1/")) {
+    return inferFactorSign(normalized.slice(2), assumptions);
+  }
+
+  const numeric = parseNumericFactor(normalized);
+  if (numeric !== null) {
+    if (numeric > 0) return "positive";
+    if (numeric < 0) return "negative";
+    return "zero";
+  }
+
+  const aliases = normalizeSymbolToken(normalized);
+  for (const alias of aliases) {
+    const sign = assumptions.get(alias);
+    if (sign === "positive" || sign === "negative" || sign === "zero") {
+      return sign;
+    }
+  }
+
+  return "unknown";
+}
+
+function parseTextSignAssumptions(value: string) {
+  const assumptions = new Map<string, ExpressionSign>();
+  const normalized = normalizeMathText(value);
+  const patterns: Array<[RegExp, ExpressionSign]> = [
+    [/([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*)>0/g, "positive"],
+    [/0<([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*)/g, "positive"],
+    [/([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*)<0/g, "negative"],
+    [/0>([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*)/g, "negative"],
+    [/([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*)=0/g, "zero"],
+  ];
+
+  patterns.forEach(([pattern, sign]) => {
+    [...normalized.matchAll(pattern)].forEach((match) => {
+      normalizeSymbolToken(match[1] ?? "").forEach((symbol) => {
+        if (isCandidateSymbol(symbol)) assumptions.set(symbol, sign);
+      });
+    });
+  });
+
+  return assumptions;
+}
+
+function parseAssumptionSign(value: string): ExpressionSign {
+  if (/zero|为零|等于零|恒为零/i.test(value)) return "zero";
+  if (/nonnegative|非负|大于等于零|>=\s*0/i.test(value)) return "unknown";
+  if (/nonpositive|非正|小于等于零|<=\s*0/i.test(value)) return "unknown";
+  if (/positive|strictly positive|正|大于零|>\s*0/i.test(value)) {
+    return "positive";
+  }
+  if (/negative|strictly negative|负|小于零|<\s*0/i.test(value)) {
+    return "negative";
+  }
+  return "unknown";
+}
+
+function parseClaimedSign(value: string): ExpressionSign {
+  const normalized = value.replace(/\s+/g, "");
+  if (/zero|为零|等于零|恒为零|=0/i.test(normalized)) return "zero";
+  if (/nonnegative|非负|大于等于零|>=0/i.test(normalized)) return "unknown";
+  if (/nonpositive|非正|小于等于零|<=0/i.test(normalized)) return "unknown";
+  if (/positive|为正|正向|正相关|增加|提高|上升/i.test(normalized)) {
+    return "positive";
+  }
+  if (/negative|为负|负向|负相关|降低|下降|减少/i.test(normalized)) {
+    return "negative";
+  }
+  return "unknown";
+}
+
+function formatSign(sign: ExpressionSign) {
+  if (sign === "positive") return "正";
+  if (sign === "negative") return "负";
+  if (sign === "zero") return "零";
+  return "无法判断";
 }
 
 function addExpression(

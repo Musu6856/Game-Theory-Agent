@@ -329,3 +329,75 @@ test("property math verifier reads chained equations inside markdown math", () =
   assert.equal(result.ok, true);
   assert.deepEqual(result.issues, []);
 });
+
+test("property math verifier rejects a sign condition that contradicts a recomputed derivative", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=\\frac{t_S-2\\alpha_B}{q}",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "wrong-sign-condition",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "q>0 时为正",
+        propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        intuition: "方向写反的候选。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /符号条件/);
+  assert.match(result.issues.join("\n"), /应为负/);
+  assert.match(result.issues.join("\n"), /写成正/);
+});
+
+test("property math verifier accepts a zero sign condition for a recomputed zero derivative", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=2/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "zero-sign-condition",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=0",
+        signCondition: "恒为零",
+        propositionDraft: "命题：买方网络效应不改变均衡佣金。",
+        proofSketch: "闭式解不含 alpha_B，因此偏导为零。",
+        intuition: "参数未进入该闭式解。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});

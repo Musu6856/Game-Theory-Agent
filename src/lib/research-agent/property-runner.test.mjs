@@ -139,6 +139,99 @@ test("property analysis agent proposes a reviewable properties patch with trace"
   );
 });
 
+test("property analysis agent repairs candidates with contradictory derivative sign conditions", async () => {
+  const project = createSolvedProject();
+  const projectWithSimpleClosedForm = {
+    ...project,
+    equilibriumResult: {
+      ...project.equilibriumResult,
+      closedForm: "tau_A^* = -2 * alpha_B / q",
+    },
+  };
+  const riskyAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 0
+      ? {
+          ...analysis,
+          id: "wrong-sign-condition",
+          target: "tau_A^*",
+          parameter: "alpha_B",
+          symbolicResult: "partial tau_A^* / partial alpha_B = -2/q",
+          signCondition: "q>0 时为正",
+          propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+          proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        }
+      : analysis
+  );
+  const repairedAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 0
+      ? {
+          ...analysis,
+          target: "tau_A^*",
+          parameter: "alpha_B",
+          symbolicResult: "partial tau_A^* / partial alpha_B = -2/q",
+          signCondition: "q>0 时为负",
+          propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+          proofSketch: "由 tau_A^* = -2alpha_B/q 直接求偏导。",
+        }
+      : analysis
+  );
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: projectWithSimpleClosedForm.rawIdea,
+      project: projectWithSimpleClosedForm,
+    },
+    {
+      id: "property-agent-sign-repair-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        const analyses = attempts === 1 ? riskyAnalyses : repairedAnalyses;
+        return {
+          project: {
+            ...projectWithSimpleClosedForm,
+            propertyAnalyses: analyses,
+            researchSession: {
+              ...projectWithSimpleClosedForm.researchSession,
+              phase: "analysis",
+              assetSummary: {
+                ...projectWithSimpleClosedForm.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  projectWithSimpleClosedForm.researchSession?.assetSummary
+                    .confirmedAssumptions ?? [],
+                utilityFunctions:
+                  projectWithSimpleClosedForm.researchSession?.assetSummary
+                    .utilityFunctions ?? [],
+                equilibriumStatus: "solved",
+                nextActions: ["检查命题条件", "整理论文草稿"],
+                pendingDecision: undefined,
+              },
+              messages: projectWithSimpleClosedForm.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "性质分析候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const propertyChange = patch?.changes.find(
+    (change) => change.path === "propertyAnalyses"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(propertyChange?.value, repairedAnalyses);
+  assert.equal(
+    result.agentRun.trace.some((event) =>
+      String(event.metadata?.issues ?? "").includes("符号条件")
+    ),
+    true
+  );
+});
+
 test("property analysis agent keeps candidate analyses pending until applied", async () => {
   const project = createSolvedProject();
   const candidateAnalyses = createCandidateAnalyses();
