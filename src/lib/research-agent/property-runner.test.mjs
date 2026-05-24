@@ -334,6 +334,156 @@ test("property analysis agent repairs candidates with underspecified derivative 
   );
 });
 
+test("property analysis agent repairs duplicate analyses with conflicting directions", async () => {
+  const project = createSolvedProject();
+  const conflictingAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 1
+      ? {
+          ...analysis,
+          id: "buyer-network-commission-opposite",
+          target: "tau_A^*",
+          parameter: "alpha_B",
+          operation: "differentiate",
+          symbolicResult: "partial tau_A^* / partial alpha_B = 2/q",
+          signCondition: "q>0 时为正",
+          propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+          proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        }
+      : analysis
+  );
+  const repairedAnalyses = createCandidateAnalyses();
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "property-agent-duplicate-conflict-repair-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        const analyses = attempts === 1 ? conflictingAnalyses : repairedAnalyses;
+        return {
+          project: {
+            ...project,
+            propertyAnalyses: analyses,
+            researchSession: {
+              ...project.researchSession,
+              phase: "analysis",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus:
+                  project.researchSession?.assetSummary.equilibriumStatus ??
+                  "solved",
+                nextActions: ["检查命题条件", "整理论文草稿"],
+                pendingDecision: undefined,
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "性质分析候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const propertyChange = patch?.changes.find(
+    (change) => change.path === "propertyAnalyses"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(propertyChange?.value, repairedAnalyses);
+  assert.equal(
+    result.agentRun.trace.some((event) =>
+      String(event.metadata?.issues ?? "").includes("互相冲突")
+    ),
+    true
+  );
+});
+
+test("property analysis agent repairs repeated property topics even without opposite signs", async () => {
+  const project = createSolvedProject();
+  const repeatedAnalyses = createCandidateAnalyses().map((analysis, index) =>
+    index === 1
+      ? {
+          ...analysis,
+          id: "buyer-network-commission-repeat",
+          target: "tau_A^*",
+          parameter: "alpha_B",
+          operation: "differentiate",
+          symbolicResult: "partial tau_A^* / partial alpha_B = -2/q",
+          signCondition: "q>0 时为负",
+          propositionDraft: "命题：买方网络效应增强会压低均衡佣金。",
+          proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        }
+      : analysis
+  );
+  const repairedAnalyses = createCandidateAnalyses();
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "property-agent-duplicate-topic-repair-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        const analyses = attempts === 1 ? repeatedAnalyses : repairedAnalyses;
+        return {
+          project: {
+            ...project,
+            propertyAnalyses: analyses,
+            researchSession: {
+              ...project.researchSession,
+              phase: "analysis",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus:
+                  project.researchSession?.assetSummary.equilibriumStatus ??
+                  "solved",
+                nextActions: ["检查命题条件", "整理论文草稿"],
+                pendingDecision: undefined,
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "性质分析候选。",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const propertyChange = patch?.changes.find(
+    (change) => change.path === "propertyAnalyses"
+  );
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(propertyChange?.value, repairedAnalyses);
+  assert.equal(
+    result.agentRun.trace.some((event) =>
+      String(event.metadata?.issues ?? "").includes("重复主题")
+    ),
+    true
+  );
+});
+
 test("property analysis agent keeps candidate analyses pending until applied", async () => {
   const project = createSolvedProject();
   const candidateAnalyses = createCandidateAnalyses();

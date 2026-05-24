@@ -319,6 +319,8 @@ function reviewPropertyAnalysisCandidates(
     issues.push(`存在重复命题 id：${duplicateIds.join("、")}。`);
   }
 
+  issues.push(...reviewDuplicatePropertyClaims(analyses));
+
   analyses.forEach((analysis, index) => {
     if (!analysis.target.trim()) {
       issues.push(`第 ${index + 1} 条缺少分析对象。`);
@@ -490,6 +492,87 @@ function findDuplicateIds(analyses: PropertyAnalysis[]) {
   }
 
   return [...duplicates];
+}
+
+function reviewDuplicatePropertyClaims(analyses: PropertyAnalysis[]) {
+  const issues: string[] = [];
+  const groups = new Map<string, PropertyAnalysis[]>();
+
+  analyses.forEach((analysis) => {
+    const key = getPropertyClaimKey(analysis);
+    if (!key) return;
+    groups.set(key, [...(groups.get(key) ?? []), analysis]);
+  });
+
+  groups.forEach((group, key) => {
+    if (group.length < 2) return;
+
+    const signs = new Map(
+      group.map((analysis) => [analysis.id, inferClaimDirection(analysis)])
+    );
+    const knownSigns = new Set(
+      [...signs.values()].filter((sign) => sign !== "unknown")
+    );
+
+    if (knownSigns.size > 1) {
+      issues.push(
+        `性质分析命题组内部互相冲突：${formatClaimKey(key)} 出现了相反方向的结论，请合并或修正重复命题。`
+      );
+      return;
+    }
+
+    issues.push(
+      `性质分析命题组存在重复主题：${formatClaimKey(key)} 被多条命题重复分析，请合并为一条或改成不同角度。`
+    );
+  });
+
+  return issues;
+}
+
+function getPropertyClaimKey(analysis: PropertyAnalysis) {
+  const target = normalizePropertyClaimToken(analysis.target);
+  const parameter = normalizePropertyClaimToken(analysis.parameter);
+  const operation = analysis.operation.trim();
+  if (!target || !parameter || !operation) return "";
+  return `${operation}:${target}:${parameter}`;
+}
+
+function normalizePropertyClaimToken(value: string) {
+  return value
+    .replace(/\\tau/g, "tau")
+    .replace(/\\alpha/g, "alpha")
+    .replace(/\\beta/g, "beta")
+    .replace(/\\delta/g, "delta")
+    .replace(/[{}]/g, "")
+    .replace(/\^\*/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function inferClaimDirection(analysis: PropertyAnalysis) {
+  const condition = analysis.signCondition.replace(/\s+/g, "");
+  if (/zero|为零|等于零|恒为零/i.test(condition)) return "zero";
+  if (/nonnegative|非负|大于等于零|>=0/i.test(condition)) return "unknown";
+  if (/nonpositive|非正|小于等于零|<=0/i.test(condition)) return "unknown";
+  if (/positive|为正|正向|正相关|增加|提高|上升/i.test(condition)) {
+    return "positive";
+  }
+  if (/negative|为负|负向|负相关|降低|下降|减少/i.test(condition)) {
+    return "negative";
+  }
+
+  const result = normalizePropertyClaimToken(analysis.symbolicResult);
+  const rhs = result.split("=").at(-1)?.trim() ?? "";
+  if (rhs === "0") return "zero";
+  if (rhs.startsWith("-")) return "negative";
+  if (rhs.startsWith("+") || /^\d/.test(rhs)) return "positive";
+
+  return "unknown";
+}
+
+function formatClaimKey(key: string) {
+  const [, target, parameter] = key.split(":");
+  return `${target} 对 ${parameter}`;
 }
 
 function createFreshResearchAssetFreshness() {
