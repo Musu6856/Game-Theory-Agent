@@ -8,6 +8,15 @@ import type {
 export type MathVerificationResult = {
   ok: boolean;
   issues: string[];
+  checks: MathVerificationCheck[];
+};
+
+export type MathVerificationCheck = {
+  kind: "symbol_grounding" | "calculus_recheck" | "sign_condition";
+  status: "passed" | "failed" | "condition_gap" | "unsupported";
+  message: string;
+  analysisId?: string;
+  analysisIndex?: number;
 };
 
 export function verifyEquilibriumMathConsistency({
@@ -33,10 +42,21 @@ export function verifyEquilibriumMathConsistency({
   const issues = ungroundedSymbols.map(
     (symbol) => `均衡候选引用了模型中未定义的符号：${symbol}。`
   );
+  const checks: MathVerificationCheck[] = [
+    {
+      kind: "symbol_grounding",
+      status: issues.length === 0 ? "passed" : "failed",
+      message:
+        issues.length === 0
+          ? "均衡候选引用的符号都能在当前模型中找到来源。"
+          : `均衡候选存在 ${issues.length} 个未定义符号。`,
+    },
+  ];
 
   return {
     ok: issues.length === 0,
     issues,
+    checks,
   };
 }
 
@@ -59,6 +79,7 @@ export function verifyPropertyAnalysisMathConsistency({
   ]).forEach((symbol) => allowedSymbols.add(symbol));
 
   const issues: string[] = [];
+  const checks: MathVerificationCheck[] = [];
 
   analyses.forEach((analysis, index) => {
     const referencedSymbols = extractMathSymbols([
@@ -79,19 +100,30 @@ export function verifyPropertyAnalysisMathConsistency({
         `第 ${index + 1} 条性质分析引用了模型或均衡中未出现的符号：${symbol}。`
       );
     });
+    checks.push({
+      kind: "symbol_grounding",
+      status: ungroundedSymbols.length === 0 ? "passed" : "failed",
+      analysisId: analysis.id,
+      analysisIndex: index,
+      message:
+        ungroundedSymbols.length === 0
+          ? `第 ${index + 1} 条性质分析引用的符号都能在模型或均衡中找到来源。`
+          : `第 ${index + 1} 条性质分析存在 ${ungroundedSymbols.length} 个未落地符号。`,
+    });
   });
 
-  issues.push(
-    ...verifyPropertyCalculusConsistency({
-      model,
-      equilibrium,
-      analyses,
-    }).issues
-  );
+  const calculusResult = verifyPropertyCalculusConsistency({
+    model,
+    equilibrium,
+    analyses,
+  });
+  issues.push(...calculusResult.issues);
+  checks.push(...calculusResult.checks);
 
   return {
     ok: issues.length === 0,
     issues,
+    checks,
   };
 }
 
@@ -108,16 +140,35 @@ function verifyPropertyCalculusConsistency({
     equilibrium?.closedForm ?? ""
   );
   const issues: string[] = [];
+  const checks: MathVerificationCheck[] = [];
 
   analyses.forEach((analysis, index) => {
     if (analysis.operation !== "differentiate") return;
 
     const target = canonicalSymbolKey(analysis.target);
     const parameter = canonicalSymbolKey(analysis.parameter);
-    if (!target || !parameter) return;
+    if (!target || !parameter) {
+      checks.push({
+        kind: "calculus_recheck",
+        status: "unsupported",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message: `第 ${index + 1} 条性质分析缺少可识别的目标变量或参数，暂不做偏导复算。`,
+      });
+      return;
+    }
 
     const targetExpression = closedFormEquations.get(target);
-    if (!targetExpression) return;
+    if (!targetExpression) {
+      checks.push({
+        kind: "calculus_recheck",
+        status: "unsupported",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message: `第 ${index + 1} 条性质分析没有在均衡闭式解中找到 ${analysis.target} 的表达式，暂不做偏导复算。`,
+      });
+      return;
+    }
 
     const expectedDerivative = differentiateSupportedExpression(
       targetExpression,
@@ -128,16 +179,38 @@ function verifyPropertyCalculusConsistency({
       target,
       parameter,
     });
-    if (!expectedDerivative || !claimedDerivative) return;
+    if (!expectedDerivative || !claimedDerivative) {
+      checks.push({
+        kind: "calculus_recheck",
+        status: "unsupported",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message: `第 ${index + 1} 条性质分析的闭式解或候选偏导超出当前轻量复算范围，暂不作为自动拦截依据。`,
+      });
+      return;
+    }
 
     const expected = simplifyExpression(expectedDerivative);
     const claimed = simplifyExpression(claimedDerivative);
     if (!areEquivalentExpressions(expected, claimed)) {
-      issues.push(
-        `第 ${index + 1} 条性质分析的偏导复算不一致：根据均衡闭式解，${analysis.target} 对 ${analysis.parameter} 的偏导应为 ${formatExpression(expected)}，但候选写成 ${formatExpression(claimed)}。`
-      );
+      const message = `第 ${index + 1} 条性质分析的偏导复算不一致：根据均衡闭式解，${analysis.target} 对 ${analysis.parameter} 的偏导应为 ${formatExpression(expected)}，但候选写成 ${formatExpression(claimed)}。`;
+      issues.push(message);
+      checks.push({
+        kind: "calculus_recheck",
+        status: "failed",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message,
+      });
       return;
     }
+    checks.push({
+      kind: "calculus_recheck",
+      status: "passed",
+      analysisId: analysis.id,
+      analysisIndex: index,
+      message: `第 ${index + 1} 条性质分析的偏导结果与均衡闭式解复算一致。`,
+    });
 
     const expectedSign = inferExpressionSign(
       expected,
@@ -157,9 +230,15 @@ function verifyPropertyCalculusConsistency({
       claimedSign !== "unknown" &&
       missingSignConditions.length > 0
     ) {
-      issues.push(
-        `第 ${index + 1} 条性质分析的符号条件不足：${analysis.target} 对 ${analysis.parameter} 的偏导为 ${formatExpression(expected)}，但要判断其${formatSign(claimedSign)}方向，还需要明确 ${missingSignConditions.join("、")} 的正负条件。`
-      );
+      const message = `第 ${index + 1} 条性质分析的符号条件不足：${analysis.target} 对 ${analysis.parameter} 的偏导为 ${formatExpression(expected)}，但要判断其${formatSign(claimedSign)}方向，还需要明确 ${missingSignConditions.join("、")} 的正负条件。`;
+      issues.push(message);
+      checks.push({
+        kind: "sign_condition",
+        status: "condition_gap",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message,
+      });
       return;
     }
     if (
@@ -167,15 +246,35 @@ function verifyPropertyCalculusConsistency({
       claimedSign !== "unknown" &&
       expectedSign !== claimedSign
     ) {
-      issues.push(
-        `第 ${index + 1} 条性质分析的符号条件与偏导复算不一致：根据均衡闭式解和已知参数条件，${analysis.target} 对 ${analysis.parameter} 的偏导应为${formatSign(expectedSign)}，但候选符号条件写成${formatSign(claimedSign)}。`
-      );
+      const message = `第 ${index + 1} 条性质分析的符号条件与偏导复算不一致：根据均衡闭式解和已知参数条件，${analysis.target} 对 ${analysis.parameter} 的偏导应为${formatSign(expectedSign)}，但候选符号条件写成${formatSign(claimedSign)}。`;
+      issues.push(message);
+      checks.push({
+        kind: "sign_condition",
+        status: "failed",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message,
+      });
+      return;
+    }
+    if (claimedSign !== "unknown") {
+      checks.push({
+        kind: "sign_condition",
+        status: expectedSign === "unknown" ? "unsupported" : "passed",
+        analysisId: analysis.id,
+        analysisIndex: index,
+        message:
+          expectedSign === "unknown"
+            ? `第 ${index + 1} 条性质分析的偏导方向暂不能由当前条件自动判断。`
+            : `第 ${index + 1} 条性质分析的符号方向与当前条件一致。`,
+      });
     }
   });
 
   return {
     ok: issues.length === 0,
     issues,
+    checks,
   };
 }
 
@@ -279,6 +378,7 @@ function isCandidateSymbol(token: string) {
   if (IGNORED_TOKEN_PATTERNS.some((pattern) => pattern.test(token))) {
     return false;
   }
+  if (looksLikeConcatenatedMathToken(token)) return false;
 
   if (/^[A-Za-z]$/.test(token)) {
     return ["q", "x", "y", "p", "t", "v", "c", "n", "s"].includes(token);
@@ -289,6 +389,18 @@ function isCandidateSymbol(token: string) {
   }
 
   return /^(tau|alpha|beta|delta|Pi)$/.test(token);
+}
+
+function looksLikeConcatenatedMathToken(token: string) {
+  if (/^[A-Za-z]_[A-Za-z0-9]+[A-Za-z]_[A-Za-z0-9]+$/.test(token)) {
+    return true;
+  }
+  if (/^[A-Za-z]+_[A-Za-z0-9]+s$/.test(token)) return true;
+  if (/^qt_[A-Za-z0-9]+$/.test(token)) return true;
+  if (/^[AB]\^[BS]$/.test(token)) return true;
+  if (/^[A-Za-z]+[A-Z]_[A-Za-z0-9]+$/.test(token)) return true;
+  if (/^[A-Za-z]_[A-Za-z0-9]+\^[A-Za-z0-9]+n$/.test(token)) return true;
+  return false;
 }
 
 type AlgebraExpression = Map<string, number>;
@@ -349,10 +461,16 @@ function differentiateSupportedExpression(expression: string, parameter: string)
   const derivative: AlgebraExpression = new Map();
   parsed.forEach((coefficient, term) => {
     const termDerivative = differentiateTerm(term, parameter);
-    if (!termDerivative) return;
+    if (!termDerivative) {
+      if (termMayDependOnParameter(term, parameter)) {
+        derivative.set("__unsupported__", Number.NaN);
+      }
+      return;
+    }
     addExpression(derivative, termDerivative, coefficient);
   });
 
+  if (derivative.has("__unsupported__")) return null;
   return derivative.size > 0 ? derivative : new Map([["1", 0]]);
 }
 
@@ -365,6 +483,12 @@ function differentiateTerm(term: string, parameter: string) {
   const remainingFactors = factors.filter((factor) => factor !== parameter);
   const key = remainingFactors.length > 0 ? remainingFactors.join("*") : "1";
   return new Map([[key, 1]]);
+}
+
+function termMayDependOnParameter(term: string, parameter: string) {
+  return term
+    .split("*")
+    .some((factor) => factor !== parameter && factor.includes(parameter));
 }
 
 function parseLinearExpression(expression: string): AlgebraExpression | null {
@@ -851,6 +975,11 @@ const IGNORED_TOKENS = new Set([
   "\\cdot",
   "\\times",
   "\\Leftrightarrow",
+  "\\Delta",
+  "\\det",
+  "\\ge",
+  "\\le",
+  "\\quad",
   "\\bar",
   "partial",
   "frac",
@@ -859,6 +988,7 @@ const IGNORED_TOKENS = new Set([
   "cdot",
   "times",
   "Leftrightarrow",
+  "Delta",
   "bar",
   "det",
   "ln",
@@ -894,13 +1024,19 @@ const IGNORED_TOKENS = new Set([
   "foc",
   "foc_tau_A",
   "foc_p_A",
+  "Pi",
 ]);
 
 const IGNORED_TOKEN_PATTERNS = [
   /^foc(?:_[A-Za-z0-9]+)+$/,
+  /^FOC(?:_[A-Za-z0-9]+)+$/,
   /^eq(?:_[A-Za-z0-9]+)+$/,
   /^expr(?:_[A-Za-z0-9]+)*$/,
+  /^[A-Za-z0-9_]+_expr$/,
   /^solution(?:_[A-Za-z0-9]+)*$/,
+  /^[A-Za-z0-9]+_solution$/,
   /^result(?:_[A-Za-z0-9]+)*$/,
   /^condition(?:_[A-Za-z0-9]+)*$/,
+  /^[A-Za-z]+_indifference$/,
+  /^Pi_[A-Za-z0-9]+$/,
 ];

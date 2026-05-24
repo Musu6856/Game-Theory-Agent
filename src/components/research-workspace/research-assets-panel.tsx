@@ -45,6 +45,20 @@ import {
   type AgentRecoverySuggestion,
 } from "@/lib/research-agent/recovery";
 import {
+  buildVersionReviewSummary,
+  type VersionReviewPriority,
+} from "@/lib/research-agent/version-review-summary";
+import {
+  buildProjectMathVerificationSummary,
+  type MathVerificationSummary,
+  type MathVerificationSummaryStatus,
+} from "@/lib/research-agent/math-verification-summary";
+import {
+  buildPaperSectionReview,
+  type PaperSectionReview,
+  type PaperSectionReviewStatus,
+} from "@/lib/research-agent/paper-section-review";
+import {
   buildAgentTraceReplay,
   buildAgentRunAuditMarkdown,
   filterAgentTraceEvents,
@@ -153,6 +167,11 @@ function ResearchAssetsPanelContent({
   const nextRecommendation = recommendNextAgentStep(project);
   const safeContinuationPlan = planSafeContinuation(project);
   const recoverySuggestion = getAgentRecoverySuggestion(project);
+  const mathSummary = buildProjectMathVerificationSummary({
+    hotellingModel: project?.hotellingModel,
+    equilibriumResult: project?.equilibriumResult,
+    propertyAnalyses: project?.propertyAnalyses,
+  });
   const isSymbolicFailure = equilibrium?.status === "symbolic_failure";
   const hasThinAnalysis = analyses.length > 0 && analyses.length < 3;
   const canSolveNow =
@@ -335,6 +354,7 @@ function ResearchAssetsPanelContent({
             canSolveNow={canSolveNow}
             isSolvingEquilibrium={isSolvingEquilibrium}
             onSolveEquilibrium={onSolveEquilibrium}
+            mathSummary={mathSummary}
           />
         ) : null}
 
@@ -347,6 +367,7 @@ function ResearchAssetsPanelContent({
             canAnalyzeNow={canAnalyzeNow}
             isAnalyzingProperties={isAnalyzingProperties}
             onAnalyzeProperties={onAnalyzeProperties}
+            mathSummary={mathSummary}
           />
         ) : null}
 
@@ -375,6 +396,7 @@ function ResearchAssetsPanelContent({
             hasThinAnalysis={hasThinAnalysis}
             isEquilibriumStale={flow.isEquilibriumStale}
             isPropertyAnalysisStale={flow.isPropertyAnalysisStale}
+            mathSummary={mathSummary}
           />
         ) : null}
       </div>
@@ -963,6 +985,87 @@ function formatAffectedAssetKinds(kinds: ResearchAssetKind[]) {
   return kinds.map(formatPatchKind).join("、");
 }
 
+function formatVersionReviewPriority(priority: VersionReviewPriority) {
+  switch (priority) {
+    case "high":
+      return "高";
+    case "medium":
+      return "中";
+    case "low":
+      return "低";
+    case "none":
+      return "无";
+  }
+}
+
+function formatMathVerificationStatus(status: MathVerificationSummaryStatus) {
+  switch (status) {
+    case "passed":
+      return "已通过";
+    case "failed":
+      return "需修正";
+    case "review_needed":
+      return "需人工复核";
+    case "not_ready":
+      return "待验证";
+  }
+}
+
+function getMathVerificationTone(
+  status: MathVerificationSummaryStatus
+): "neutral" | "success" | "warning" {
+  switch (status) {
+    case "passed":
+      return "success";
+    case "failed":
+    case "review_needed":
+      return "warning";
+    case "not_ready":
+      return "neutral";
+  }
+}
+
+function formatPaperSectionReviewStatus(status: PaperSectionReviewStatus) {
+  switch (status) {
+    case "passed":
+      return "可继续";
+    case "review_needed":
+      return "需复核";
+    case "not_ready":
+      return "待成稿";
+  }
+}
+
+function getPaperSectionReviewTone(
+  status: PaperSectionReviewStatus
+): "neutral" | "success" | "warning" {
+  switch (status) {
+    case "passed":
+      return "success";
+    case "review_needed":
+      return "warning";
+    case "not_ready":
+      return "neutral";
+  }
+}
+
+function formatPaperDependency(
+  dependency: PaperSectionReview["tasks"][number]["dependsOn"][number]
+) {
+  switch (dependency) {
+    case "direction":
+      return "方向";
+    case "evidence":
+      return "来源";
+    case "model":
+      return "模型";
+    case "equilibrium":
+      return "均衡";
+    case "properties":
+      return "性质分析";
+  }
+}
+
 function formatChangeKind(kind: ResearchAssetVersionEvent["changes"][number]["kind"]) {
   switch (kind) {
     case "append":
@@ -1051,6 +1154,7 @@ function EquilibriumTab({
   canSolveNow,
   isSolvingEquilibrium,
   onSolveEquilibrium,
+  mathSummary,
 }: {
   equilibriumStatusLabel: string;
   equilibrium?: ResearchProject["equilibriumResult"];
@@ -1059,6 +1163,7 @@ function EquilibriumTab({
   canSolveNow: boolean;
   isSolvingEquilibrium?: boolean;
   onSolveEquilibrium?: () => void;
+  mathSummary: MathVerificationSummary;
 }) {
   const primaryAction = getResearchPrimaryAction(
     {
@@ -1090,6 +1195,8 @@ function EquilibriumTab({
         isBusy={isSolvingEquilibrium}
         onAction={onSolveEquilibrium}
       />
+
+      <MathVerificationSummaryPanel summary={mathSummary} compact />
 
       {equilibrium ? (
         <>
@@ -1158,6 +1265,7 @@ function PropertiesTab({
   canAnalyzeNow,
   isAnalyzingProperties,
   onAnalyzeProperties,
+  mathSummary,
 }: {
   analyses: NonNullable<ResearchProject["propertyAnalyses"]>;
   analysisStatusLabel: string;
@@ -1166,6 +1274,7 @@ function PropertiesTab({
   canAnalyzeNow: boolean;
   isAnalyzingProperties?: boolean;
   onAnalyzeProperties?: () => void;
+  mathSummary: MathVerificationSummary;
 }) {
   const primaryAction = getResearchPrimaryAction(
     {
@@ -1197,6 +1306,8 @@ function PropertiesTab({
         isBusy={isAnalyzingProperties}
         onAction={onAnalyzeProperties}
       />
+
+      <MathVerificationSummaryPanel summary={mathSummary} compact />
 
       {analyses.length > 0 ? (
         <div className="space-y-3">
@@ -1246,6 +1357,12 @@ function PaperTab({
   const markdown = project ? buildResearchProjectMarkdown(project) : "";
   const sections = project?.sections ?? [];
   const hasDraftSections = sections.length > 0;
+  const sectionReview = buildPaperSectionReview({
+    project: {
+      sections,
+      researchSession: project?.researchSession,
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -1281,6 +1398,8 @@ function PaperTab({
           </div>
         ) : null}
       </AssetSection>
+
+      <PaperSectionReviewPanel review={sectionReview} />
 
       <AssetSection title="论文预览">
         {markdown ? (
@@ -1325,6 +1444,7 @@ function QualityTab({
   hasThinAnalysis,
   isEquilibriumStale,
   isPropertyAnalysisStale,
+  mathSummary,
 }: {
   session: ResearchSession;
   equilibrium?: ResearchProject["equilibriumResult"];
@@ -1333,6 +1453,7 @@ function QualityTab({
   hasThinAnalysis: boolean;
   isEquilibriumStale: boolean;
   isPropertyAnalysisStale: boolean;
+  mathSummary: MathVerificationSummary;
 }) {
   return (
     <div className="space-y-5">
@@ -1357,6 +1478,8 @@ function QualityTab({
           <QualityLine ok={!equilibrium?.warnings.length} text="均衡结果没有显式注意事项" />
         </div>
       </AssetSection>
+
+      <MathVerificationSummaryPanel summary={mathSummary} />
 
       <AssetSection title="下一步">
         <OrderedList items={session.assetSummary.nextActions} />
@@ -1391,6 +1514,113 @@ function OrderedList({ items }: { items: string[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+function MathVerificationSummaryPanel({
+  summary,
+  compact = false,
+}: {
+  summary: MathVerificationSummary;
+  compact?: boolean;
+}) {
+  const visibleIssues = summary.issues.slice(0, compact ? 2 : 4);
+  const visibleChecks = summary.checks
+    .filter((check) => check.status !== "passed")
+    .slice(0, compact ? 2 : 5);
+
+  return (
+    <AssetSection title="数学验证">
+      <div className="rounded-md border bg-background px-3 py-3 text-xs leading-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge
+            label={formatMathVerificationStatus(summary.status)}
+            tone={getMathVerificationTone(summary.status)}
+          />
+          <span className="text-muted-foreground">{summary.headline}</span>
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-4">
+          <InfoTile label="通过" value={`${summary.checkCounts.passed} 项`} />
+          <InfoTile label="需修正" value={`${summary.checkCounts.failed} 项`} />
+          <InfoTile
+            label="条件不足"
+            value={`${summary.checkCounts.condition_gap} 项`}
+          />
+          <InfoTile
+            label="人工复核"
+            value={`${summary.checkCounts.unsupported} 项`}
+          />
+        </div>
+        <p className="mt-3 font-medium text-foreground">
+          建议下一步：{summary.nextAction}
+        </p>
+        {visibleIssues.length > 0 ? (
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+            {visibleIssues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        ) : null}
+        {visibleIssues.length === 0 && visibleChecks.length > 0 ? (
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+            {visibleChecks.map((check) => (
+              <li
+                key={`${check.kind}-${check.analysisId ?? "project"}-${check.message}`}
+              >
+                {check.message}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </AssetSection>
+  );
+}
+
+function PaperSectionReviewPanel({ review }: { review: PaperSectionReview }) {
+  return (
+    <AssetSection
+      title="章节复核"
+      description="章节级任务用于检查论文草稿是否还贴合当前模型、均衡和命题。"
+    >
+      <div className="rounded-md border bg-background px-3 py-3 text-xs leading-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge
+            label={formatPaperSectionReviewStatus(review.status)}
+            tone={getPaperSectionReviewTone(review.status)}
+          />
+          <span className="text-muted-foreground">{review.headline}</span>
+        </div>
+        <p className="mt-2 font-medium text-foreground">
+          建议下一步：{review.nextAction}
+        </p>
+        {review.tasks.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {review.tasks.map((task) => (
+              <article
+                key={task.sectionId}
+                className="rounded-sm border bg-card px-2.5 py-2"
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <StatusBadge
+                    label={formatVersionReviewPriority(task.priority)}
+                    tone={task.priority === "high" ? "warning" : "neutral"}
+                  />
+                  <p className="font-medium text-foreground">{task.title}</p>
+                </div>
+                <p className="mt-1 text-muted-foreground">{task.reason}</p>
+                <p className="mt-1 text-muted-foreground">
+                  依赖资产：{task.dependsOn.map(formatPaperDependency).join("、")}
+                </p>
+                <p className="mt-1 font-medium text-foreground">
+                  {task.nextAction}
+                </p>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </AssetSection>
   );
 }
 
@@ -1435,6 +1665,7 @@ function HistoryTab({
   onRollbackVersion?: (eventId: string) => void;
 }) {
   const events = [...history].reverse();
+  const summary = buildVersionReviewSummary(history);
 
   if (events.length === 0) {
     return (
@@ -1444,6 +1675,35 @@ function HistoryTab({
 
   return (
     <div className="space-y-4">
+      <AssetSection
+        title="版本复盘"
+        description="这里汇总最近审核对后续研究资产的影响，帮助判断先重算、先复核，还是继续写作。"
+      >
+        <div className="grid gap-2 text-[11px] leading-5 sm:grid-cols-3">
+          <InfoTile label="待复核" value={`${summary.reviewItemCount} 条`} />
+          <InfoTile
+            label="最高优先级"
+            value={formatVersionReviewPriority(summary.highestPriority)}
+          />
+          <InfoTile
+            label="受影响资产"
+            value={formatAffectedAssetKinds(summary.affectedAssetKinds)}
+          />
+        </div>
+        {summary.latestImpactSummary || summary.latestNextAction ? (
+          <div className="mt-3 rounded-md border bg-background px-3 py-3 text-xs leading-5 text-muted-foreground">
+            {summary.latestImpactSummary ? (
+              <p>{summary.latestImpactSummary}</p>
+            ) : null}
+            {summary.latestNextAction ? (
+              <p className="mt-1 font-medium text-foreground">
+                建议下一步：{summary.latestNextAction}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </AssetSection>
+
       <AssetSection
         title="资产历史"
         description="这里记录用户审核过的修改建议，方便回放每个资产为什么被改、何时被批准。"

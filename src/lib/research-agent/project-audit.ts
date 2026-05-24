@@ -10,6 +10,9 @@ import type {
   ResearchSession,
 } from "../types";
 import { buildAgentTraceReplay } from "./trace-replay.ts";
+import { buildProjectMathVerificationSummary } from "./math-verification-summary.ts";
+import { buildPaperSectionReview } from "./paper-section-review.ts";
+import { buildVersionReviewSummary } from "./version-review-summary.ts";
 
 export function buildProjectAuditMarkdown(project: ResearchProject) {
   const session = project.researchSession;
@@ -40,6 +43,9 @@ export function buildProjectAuditMarkdown(project: ResearchProject) {
   appendDirections(lines, session);
   appendPendingPatches(lines, session);
   appendAgentRuns(lines, runs);
+  appendVersionReviewSummary(lines, versionHistory);
+  appendMathVerificationSummary(lines, project);
+  appendPaperSectionReview(lines, project);
   appendAssetVersionHistory(lines, versionHistory);
 
   return lines.join("\n");
@@ -198,6 +204,123 @@ function appendAgentRuns(lines: string[], runs: AgentRun[]) {
   });
 }
 
+function appendVersionReviewSummary(
+  lines: string[],
+  history: ResearchAssetVersionEvent[]
+) {
+  const summary = buildVersionReviewSummary(history);
+
+  lines.push("", "## 版本复盘摘要");
+  if (summary.reviewItemCount === 0) {
+    lines.push("", "暂无需要复盘的资产审核影响。");
+    return;
+  }
+
+  lines.push(
+    "",
+    `- 审核历史：${summary.totalEventCount} 条`,
+    `- 待复核：${summary.reviewItemCount} 条`,
+    `- 最高优先级：${formatVersionReviewPriority(summary.highestPriority)}`,
+    `- 受影响资产：${formatAffectedAssetKinds(summary.affectedAssetKinds)}`
+  );
+  if (summary.latestImpactSummary) {
+    lines.push(`- 最近影响：${summary.latestImpactSummary}`);
+  }
+  if (summary.latestNextAction) {
+    lines.push(`- 建议下一步：${summary.latestNextAction}`);
+  }
+
+  lines.push("", "### 待复核事项");
+  summary.reviewItems.slice(0, 8).forEach((item, index) => {
+    lines.push(
+      "",
+      `#### ${index + 1}. ${item.summary}`,
+      "",
+      `- 事件 ID：\`${item.eventId}\``,
+      `- 资产：${formatAssetKind(item.assetKind)}`,
+      `- 动作：${formatVersionAction(item.action)}`,
+      `- 优先级：${formatVersionReviewPriority(item.priority)}`,
+      `- 时间：${formatAuditTimestamp(item.createdAt)}`,
+      `- 影响摘要：${item.impactSummary}`,
+      `- 受影响资产：${formatAffectedAssetKinds(item.affectedAssetKinds)}`,
+      `- 建议下一步：${item.nextAction}`
+    );
+    if (item.reviewFocus.length > 0) {
+      lines.push("", "##### 复核重点");
+      item.reviewFocus.forEach((focus) => {
+        lines.push(`- ${focus}`);
+      });
+    }
+  });
+}
+
+function appendMathVerificationSummary(lines: string[], project: ResearchProject) {
+  const summary = buildProjectMathVerificationSummary({
+    hotellingModel: project.hotellingModel,
+    equilibriumResult: project.equilibriumResult,
+    propertyAnalyses: project.propertyAnalyses,
+  });
+
+  lines.push(
+    "",
+    "## 数学验证摘要",
+    "",
+    `- 状态：${formatMathVerificationStatus(summary.status)}`,
+    `- 摘要：${summary.headline}`,
+    `- 建议下一步：${summary.nextAction}`,
+    `- 通过：${summary.checkCounts.passed} 项`,
+    `- 需修正：${summary.checkCounts.failed} 项`,
+    `- 条件不足：${summary.checkCounts.condition_gap} 项`,
+    `- 人工复核：${summary.checkCounts.unsupported} 项`
+  );
+
+  if (summary.issues.length > 0) {
+    lines.push("", "### 数学问题");
+    summary.issues.forEach((issue) => lines.push(`- ${issue}`));
+  }
+
+  const nonPassedChecks = summary.checks.filter(
+    (check) => check.status !== "passed"
+  );
+  if (nonPassedChecks.length > 0) {
+    lines.push("", "### 需关注检查");
+    nonPassedChecks.forEach((check) => {
+      lines.push(
+        `- ${formatMathCheckKind(check.kind)} / ${formatMathCheckStatus(check.status)}：${check.message}`
+      );
+    });
+  }
+}
+
+function appendPaperSectionReview(lines: string[], project: ResearchProject) {
+  const review = buildPaperSectionReview({ project });
+
+  lines.push(
+    "",
+    "## 章节复核摘要",
+    "",
+    `- 状态：${formatPaperSectionReviewStatus(review.status)}`,
+    `- 摘要：${review.headline}`,
+    `- 建议下一步：${review.nextAction}`
+  );
+
+  if (review.tasks.length === 0) return;
+
+  lines.push("", "### 章节任务");
+  review.tasks.forEach((task, index) => {
+    lines.push(
+      "",
+      `#### ${index + 1}. ${task.title}`,
+      "",
+      `- 章节 ID：\`${task.sectionId}\``,
+      `- 优先级：${formatVersionReviewPriority(task.priority)}`,
+      `- 依赖资产：${task.dependsOn.map(formatPaperDependency).join("、")}`,
+      `- 复核原因：${task.reason}`,
+      `- 建议动作：${task.nextAction}`
+    );
+  });
+}
+
 function appendTraceEvents(lines: string[], events: AgentTraceEvent[]) {
   if (events.length === 0) return;
 
@@ -349,6 +472,84 @@ function formatAssetKind(kind: ResearchAssetKind) {
 function formatAffectedAssetKinds(kinds: ResearchAssetKind[]) {
   if (kinds.length === 0) return "无正式资产受影响";
   return kinds.map(formatAssetKind).join("、");
+}
+
+function formatVersionReviewPriority(priority: "high" | "medium" | "low" | "none") {
+  switch (priority) {
+    case "high":
+      return "高";
+    case "medium":
+      return "中";
+    case "low":
+      return "低";
+    case "none":
+      return "无";
+  }
+}
+
+function formatMathVerificationStatus(status: "passed" | "failed" | "review_needed" | "not_ready") {
+  switch (status) {
+    case "passed":
+      return "已通过";
+    case "failed":
+      return "需修正";
+    case "review_needed":
+      return "需人工复核";
+    case "not_ready":
+      return "待验证";
+  }
+}
+
+function formatMathCheckKind(kind: "symbol_grounding" | "calculus_recheck" | "sign_condition") {
+  switch (kind) {
+    case "symbol_grounding":
+      return "符号来源";
+    case "calculus_recheck":
+      return "偏导复算";
+    case "sign_condition":
+      return "符号条件";
+  }
+}
+
+function formatMathCheckStatus(status: "passed" | "failed" | "condition_gap" | "unsupported") {
+  switch (status) {
+    case "passed":
+      return "已通过";
+    case "failed":
+      return "需修正";
+    case "condition_gap":
+      return "条件不足";
+    case "unsupported":
+      return "人工复核";
+  }
+}
+
+function formatPaperSectionReviewStatus(status: "passed" | "review_needed" | "not_ready") {
+  switch (status) {
+    case "passed":
+      return "可继续";
+    case "review_needed":
+      return "需复核";
+    case "not_ready":
+      return "待成稿";
+  }
+}
+
+function formatPaperDependency(
+  dependency: "direction" | "evidence" | "model" | "equilibrium" | "properties"
+) {
+  switch (dependency) {
+    case "direction":
+      return "方向";
+    case "evidence":
+      return "来源";
+    case "model":
+      return "模型";
+    case "equilibrium":
+      return "均衡";
+    case "properties":
+      return "性质分析";
+  }
 }
 
 function formatRunStatus(status: AgentRun["status"]) {

@@ -93,6 +93,10 @@ test("equilibrium math verifier accepts symbols grounded in the model", () => {
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.issues, []);
+  assert.deepEqual(
+    result.checks.map((check) => check.status),
+    ["passed"]
+  );
 });
 
 test("equilibrium math verifier rejects ungrounded variables", () => {
@@ -114,6 +118,8 @@ test("equilibrium math verifier rejects ungrounded variables", () => {
   assert.equal(result.ok, false);
   assert.match(result.issues.join("\n"), /p_A/);
   assert.match(result.issues.join("\n"), /beta_X/);
+  assert.equal(result.checks[0]?.status, "failed");
+  assert.equal(result.checks[0]?.kind, "symbol_grounding");
 });
 
 test("property math verifier rejects target and parameter outside model and equilibrium context", () => {
@@ -443,4 +449,90 @@ test("property math verifier rejects a directional sign claim without required p
   assert.equal(result.ok, false);
   assert.match(result.issues.join("\n"), /条件不足/);
   assert.match(result.issues.join("\n"), /q/);
+  assert.ok(
+    result.checks.some(
+      (check) =>
+        check.kind === "sign_condition" && check.status === "condition_gap"
+    )
+  );
+});
+
+test("property math verifier reports passed calculus checks for supported derivatives", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=2*alpha_B/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "supported-derivative",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=\\frac{2}{q}",
+        signCondition: "为正",
+        propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        intuition: "q 为正时偏导为正。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(
+    result.checks.some(
+      (check) =>
+        check.kind === "calculus_recheck" && check.status === "passed"
+    )
+  );
+});
+
+test("property math verifier reports unsupported calculus checks without blocking", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=sqrt(alpha_B)",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    analyses: [
+      {
+        id: "unsupported-derivative",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=\\frac{1}{2\\alpha_B}",
+        signCondition: "为正",
+        propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+        proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+        intuition: "候选使用根号表达式。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(
+    result.checks.some(
+      (check) =>
+        check.kind === "calculus_recheck" && check.status === "unsupported"
+    )
+  );
 });

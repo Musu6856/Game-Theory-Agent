@@ -11,6 +11,8 @@ import type {
   ResearchProject,
   ResearchSessionDecision,
 } from "../types";
+import { buildProjectMathVerificationSummary } from "./math-verification-summary.ts";
+import { buildVersionReviewSummary } from "./version-review-summary.ts";
 
 export type NextAgentActionKind =
   | ResearchSessionDecision["kind"]
@@ -29,6 +31,8 @@ export type NextAgentBlocker = {
     | "symbolic_failure"
     | "missing_asset"
     | "manual_choice"
+    | "version_review"
+    | "math_verification"
     | "complete";
   label: string;
   description: string;
@@ -189,6 +193,44 @@ export function recommendNextAgentStep(
         description: `${reviewLoad.label}：${reviewLoad.reason} 处理后再继续下一步。`,
         patchKind: pendingPatch.kind,
         reviewLoad,
+      },
+    };
+  }
+
+  const versionSummary = buildVersionReviewSummary(
+    session?.assetVersionHistory ?? []
+  );
+  if (versionSummary.highestPriority === "high") {
+    return {
+      status: "blocked",
+      title: "先做版本复盘",
+      reason: `版本复盘显示最近审核影响了${formatAffectedAssetKinds(versionSummary.affectedAssetKinds)}，建议先确认这些资产是否需要重算或改写。`,
+      targetTab: "history",
+      blocker: {
+        kind: "version_review",
+        label: "版本影响待复核",
+        description:
+          versionSummary.latestNextAction ??
+          "先查看历史页的版本复盘，再决定下一步。",
+      },
+    };
+  }
+
+  const mathSummary = buildProjectMathVerificationSummary({
+    hotellingModel: project.hotellingModel,
+    equilibriumResult: project.equilibriumResult,
+    propertyAnalyses: project.propertyAnalyses,
+  });
+  if (mathSummary.status === "failed") {
+    return {
+      status: "blocked",
+      title: "先处理数学验证问题",
+      reason: `数学验证发现 ${mathSummary.issueCount} 个需要修正的问题，继续生成论文前应先处理。`,
+      targetTab: "quality",
+      blocker: {
+        kind: "math_verification",
+        label: "数学验证需修正",
+        description: mathSummary.nextAction,
       },
     };
   }
@@ -394,6 +436,11 @@ function getTabForPatchKind(kind: ResearchAssetKind): ResearchAssetsTab {
     case "paper":
       return "paper";
   }
+}
+
+function formatAffectedAssetKinds(kinds: ResearchAssetKind[]) {
+  if (kinds.length === 0) return "后续资产";
+  return kinds.map(formatPatchKind).join("、");
 }
 
 function formatPatchKind(kind: ResearchAssetKind) {

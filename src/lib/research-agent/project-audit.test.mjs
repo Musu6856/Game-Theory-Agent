@@ -157,6 +157,14 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
   assert.match(markdown, /## Agent 执行记录/);
   assert.match(markdown, /run-1/);
   assert.match(markdown, /生成论文草稿/);
+  assert.match(markdown, /## 版本复盘摘要/);
+  assert.match(markdown, /待复核：1 条/);
+  assert.match(markdown, /最高优先级：低/);
+  assert.match(markdown, /最近影响：论文草稿已更新/);
+  assert.match(markdown, /## 数学验证摘要/);
+  assert.match(markdown, /状态：待验证/);
+  assert.match(markdown, /## 章节复核摘要/);
+  assert.match(markdown, /状态：可继续|状态：需复核/);
   assert.match(markdown, /## 资产审核历史/);
   assert.match(markdown, /后续建议：论文草稿已写入/);
   assert.match(markdown, /影响摘要：论文草稿已更新/);
