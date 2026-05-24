@@ -262,6 +262,7 @@ export interface ResearchAssetVersionEvent {
   sourceMessageId?: string;
   note?: string;
   rejectionReason?: string;
+  nextRecommendation?: string;
 }
 
 export interface ResearchAssetPatchInput {

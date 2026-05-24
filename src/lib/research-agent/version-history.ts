@@ -163,7 +163,28 @@ function createPatchReviewVersionEvent({
     ...(status === "rejected" && rejectionReason
       ? { rejectionReason }
       : {}),
+    nextRecommendation: getReviewNextRecommendation(patch.kind, status),
   };
+}
+
+function getReviewNextRecommendation(
+  kind: ResearchAssetPatch["kind"],
+  status: Extract<ResearchAssetPatchStatus, "applied" | "rejected">
+) {
+  if (status === "rejected") {
+    return "已拒绝这条修改建议；回到当前阶段，继续沿用现有研究资产或重新生成候选。";
+  }
+
+  switch (kind) {
+    case "model":
+      return "模型已变更；下一步应重新生成符号均衡，再基于新均衡重做性质分析。";
+    case "equilibrium":
+      return "均衡已变更；下一步应检查闭式解和存在条件，并重新生成性质分析。";
+    case "properties":
+      return "性质分析已变更；下一步可以整理论文草稿，或继续检查命题条件。";
+    case "paper":
+      return "论文草稿已写入；下一步可以导出 Markdown，或继续改写章节与引用。";
+  }
 }
 
 function getPendingDecisionKindForAsset(

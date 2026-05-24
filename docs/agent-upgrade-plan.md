@@ -388,6 +388,7 @@ type EvidenceSource = {
 - `src/lib/research-pending-patches-layout.ts` 已提供审核负担分层：模型和均衡 patch 默认是“重点审核”，普通性质分析 patch 是“标准审核”，论文草稿整理是“快速审核”；如果性质分析或论文 patch 带有数学自检风险，也会提升为“重点审核”。
 - 总控阻塞项会带出同一套审核强度和原因，右侧待审核卡片也会展示简短徽标；这只降低用户判断负担，不改变“核心资产必须人工审核”的安全边界。
 - 右侧待审核区已支持“应用快速审核项”：`src/lib/research-asset-patch-apply.ts` 会重新筛选低风险 patch 后再批量应用，避免 UI 误传模型、均衡或带数学风险的 patch id。
+- `src/lib/research-agent/version-history.ts` 已为资产审核记录生成“后续建议”，历史页会显示应用或拒绝 patch 后应该接回哪一步。
 - `src/lib/research-agent/controller.test.mjs` 覆盖了待审核 patch 阻塞、方向选择、模型确认、均衡求解、性质分析、论文草稿、已成稿判断和安全连续推进计划。
 
 验收：
@@ -399,6 +400,7 @@ type EvidenceSource = {
 - 已完成：总控连续推进会写入独立 Agent trace/history，便于回放“为什么推进到这里、在哪里停下”。
 - 已完成 v1：待审核 patch 会按重点、标准和快速审核分层；论文草稿类修改不再和模型/均衡这类核心资产显示成同等审核负担。
 - 已完成 v1：低风险论文草稿类 patch 可从待审核区批量快速应用；核心资产、普通性质分析和带数学自检风险的 patch 不进入批量快速处理。
+- 已完成 v1：应用或拒绝 patch 后，资产历史会记录后续建议，帮助用户把审核结果接回总控下一步。
 - 已完成 v1：AgentRun 会记录步骤检查点；失败、暂停或疑似中断的最近一次 AgentRun 会被转译成带检查点的安全恢复提示。
 - 已完成 v1：均衡、性质分析和论文草稿 runner 可沿用同一 `AgentRun.id` 从失败步骤重试，并跳过该 run 中已经完成的准备步骤。
 - 已完成 v1：Agent 执行记录按步骤回放，用户能看到每一步的状态、最近说明、检查点数、事件数和恢复标记。
@@ -423,7 +425,7 @@ type EvidenceSource = {
 
 - 已完成 v1：`src/lib/research-agent/version-history.ts` 会在应用或拒绝资产 patch 时记录 `researchSession.assetVersionHistory`。
 - 已完成 v1：版本事件会保留每处修改的路径、操作类型、原值、新值和说明，供历史差异展示与回滚建议复用。
-- 已完成 v1：右侧工作台加入“历史”tab，展示资产类型、应用/拒绝状态、审核时间、修改路径、差异摘要、说明和拒绝原因。
+- 已完成 v1：右侧工作台加入“历史”tab，展示资产类型、应用/拒绝状态、审核时间、修改路径、差异摘要、说明、拒绝原因和审核后的后续建议。
 - 已完成 v1：用户能看到某个资产为什么被改、何时被批准，以及对应的 patch id / source message id。
 - 已完成 v1：已应用历史记录可以生成“回滚建议”；回滚仍然进入待审核 patch 队列，由用户应用或拒绝，不会自动覆盖正式资产。
 - 已完成 v1：关键 AgentRun 的 `paused` / `failed` / `running` 状态会进入恢复建议层，支持安全重试、继续推进或引导先审核 patch；步骤 checkpoint 会辅助说明最近停在哪里。

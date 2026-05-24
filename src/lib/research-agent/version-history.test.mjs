@@ -59,6 +59,7 @@ test("records applied asset patch as an auditable version event", () => {
   assert.equal(event?.changeCount, 1);
   assert.equal(event?.createdAt, 1710000000002);
   assert.equal(event?.note, "修正闭式解。");
+  assert.match(event?.nextRecommendation ?? "", /性质分析/);
   assert.deepEqual(event?.changes, [
     {
       kind: "replace",
@@ -68,6 +69,58 @@ test("records applied asset patch as an auditable version event", () => {
       note: "修正闭式解。",
     },
   ]);
+});
+
+test("records review follow-up guidance for applied model and paper patches", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "研究二手平台佣金与补贴策略",
+    now: 1710000000000,
+  });
+  const modelPatch = {
+    id: "patch-model",
+    kind: "model",
+    summary: "修改模型假设",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "append",
+        path: "hotellingModel.assumptions",
+        value: "平台固定成本为非负。",
+      },
+    ],
+  };
+  const paperPatch = {
+    id: "patch-paper",
+    kind: "paper",
+    summary: "整理论文草稿",
+    status: "proposed",
+    createdAt: 1710000000002,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections",
+        value: [],
+      },
+    ],
+  };
+
+  const afterModel = recordPatchReviewVersion(project, {
+    patch: modelPatch,
+    status: "applied",
+    now: 1710000000003,
+  });
+  const afterPaper = recordPatchReviewVersion(afterModel, {
+    patch: paperPatch,
+    status: "applied",
+    now: 1710000000004,
+  });
+  const [modelEvent, paperEvent] =
+    afterPaper.researchSession?.assetVersionHistory ?? [];
+
+  assert.match(modelEvent?.nextRecommendation ?? "", /重新生成符号均衡/);
+  assert.match(paperEvent?.nextRecommendation ?? "", /导出 Markdown|继续改写/);
 });
 
 test("records rejected asset patch without pretending assets changed", () => {
@@ -106,6 +159,7 @@ test("records rejected asset patch without pretending assets changed", () => {
   assert.deepEqual(event?.changedPaths, ["hotellingModel.assumptions"]);
   assert.deepEqual(event?.changes[0]?.value, ["平台单归属"]);
   assert.deepEqual(event?.changes[0]?.previousValue, undefined);
+  assert.match(event?.nextRecommendation ?? "", /回到当前阶段/);
 });
 
 test("creates a reviewable rollback patch from an applied version event", () => {

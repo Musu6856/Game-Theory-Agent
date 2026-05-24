@@ -1461,6 +1461,11 @@ function HistoryTab({
                   拒绝原因：{event.rejectionReason}
                 </p>
               ) : null}
+              {event.nextRecommendation ? (
+                <p className="mt-2 rounded-sm border bg-card px-2 py-1.5 text-muted-foreground">
+                  后续建议：{event.nextRecommendation}
+                </p>
+              ) : null}
               {canRollback ? (
                 <div className="mt-3">
                   <Button
