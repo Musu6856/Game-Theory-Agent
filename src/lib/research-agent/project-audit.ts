@@ -290,6 +290,19 @@ function appendMathVerificationSummary(lines: string[], project: ResearchProject
       );
     });
   }
+
+  const persistedSympyChecks =
+    project.researchSession?.mathVerificationChecks?.filter(
+      (check) => check.kind === "sympy_execution"
+    ) ?? [];
+  if (persistedSympyChecks.length > 0) {
+    lines.push("", "### 已记录 SymPy 复核");
+    persistedSympyChecks.forEach((check) => {
+      lines.push(
+        `- ${formatMathCheckStatus(check.status)}：${check.message}`
+      );
+    });
+  }
 }
 
 function appendPaperSectionReview(lines: string[], project: ResearchProject) {

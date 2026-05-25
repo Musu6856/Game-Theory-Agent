@@ -309,6 +309,23 @@ export interface ResearchSessionAssetSummary {
   nextActions: string[];
 }
 
+export type ResearchMathVerificationCheck = {
+  kind:
+    | "symbol_grounding"
+    | "calculus_recheck"
+    | "sign_condition"
+    | "sympy_execution";
+  status:
+    | "passed"
+    | "failed"
+    | "condition_insufficient"
+    | "unsupported"
+    | "manual_review";
+  message: string;
+  analysisId?: string;
+  analysisIndex?: number;
+};
+
 export interface ResearchSession {
   phase: "direction" | "model" | "equilibrium" | "analysis" | "paper";
   directions: ResearchDirection[];
@@ -320,6 +337,7 @@ export interface ResearchSession {
   assetVersionHistory?: ResearchAssetVersionEvent[];
   assetFreshness?: ResearchAssetFreshnessMap;
   assetPatches?: ResearchAssetPatch[];
+  mathVerificationChecks?: ResearchMathVerificationCheck[];
 }
 
 export type AgentRunStatus =

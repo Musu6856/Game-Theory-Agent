@@ -286,6 +286,7 @@ export async function runEquilibriumSolvingAgent(
     agentRun,
     now,
     reviewIssues: review.issues,
+    reviewChecks: review.checks,
   });
 
   return {
@@ -431,6 +432,7 @@ function attachEquilibriumPatchForReview({
   agentRun,
   now,
   reviewIssues,
+  reviewChecks,
 }: {
   originalProject: ResearchProject;
   solveResult: ResearchGenerationResponse;
@@ -438,6 +440,7 @@ function attachEquilibriumPatchForReview({
   agentRun: AgentRun;
   now: number;
   reviewIssues: string[];
+  reviewChecks: MathVerificationCheck[];
 }) {
   const session =
     originalProject.researchSession ??
@@ -465,6 +468,10 @@ function attachEquilibriumPatchForReview({
         messages,
         agentRun,
         assetPatches: appendOrReplaceProposedPatch(previousPatches, patch),
+        mathVerificationChecks: mergeSessionMathVerificationChecks(
+          session.mathVerificationChecks,
+          reviewChecks
+        ),
         assetSummary: {
           ...session.assetSummary,
           equilibriumStatus:
@@ -484,6 +491,29 @@ function attachEquilibriumPatchForReview({
     },
     agentRun
   );
+}
+
+function mergeSessionMathVerificationChecks(
+  previous: MathVerificationCheck[] | undefined,
+  next: MathVerificationCheck[]
+) {
+  const seen = new Set<string>();
+  const merged: MathVerificationCheck[] = [];
+
+  [...(previous ?? []), ...next].forEach((check) => {
+    const key = [
+      check.kind,
+      check.status,
+      check.analysisId ?? "",
+      check.analysisIndex ?? "",
+      check.message,
+    ].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(check);
+  });
+
+  return merged.slice(-20);
 }
 
 function createReviewMessage(reviewIssues: string[]) {

@@ -809,3 +809,77 @@ test(
     assert.match(equilibriumChange?.note ?? "", /alpha_B - 2\*tau_A/);
   }
 );
+
+test(
+  "equilibrium solving agent persists SymPy review checks on the research session",
+  { skip: !hasLocalSympy },
+  async () => {
+    const baseProject = createConfirmedProject();
+    const project = {
+      ...baseProject,
+      hotellingModel: createExplicitProfitModel(),
+    };
+    const candidateEquilibrium = {
+      status: "solved",
+      concept: "由利润函数复核的闭式解",
+      solvingSteps: ["写出利润函数", "对佣金求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["alpha_B > 0"],
+      closedForm: "tau_A^* = alpha_B/2",
+      derivation: "候选闭式解满足从利润函数生成的 FOC。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    };
+
+    const result = await runEquilibriumSolvingAgent(
+      {
+        rawIdea: project.rawIdea,
+        project,
+      },
+      {
+        id: "equilibrium-agent-persist-sympy-checks-test",
+        now: 1710000000000,
+        solveEquilibrium: async () => ({
+          project: {
+            ...project,
+            equilibriumResult: candidateEquilibrium,
+            researchSession: {
+              ...project.researchSession,
+              phase: "equilibrium",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus: candidateEquilibrium.status,
+                nextActions: ["检查符号均衡推导", "生成性质分析"],
+                pendingDecision: {
+                  kind: "analyze_properties",
+                  prompt: "符号均衡结果已经生成。",
+                },
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "均衡候选。",
+        }),
+      }
+    );
+
+    const persistedChecks =
+      result.project.researchSession?.mathVerificationChecks ?? [];
+
+    assert.ok(
+      persistedChecks.some(
+        (check) =>
+          check.kind === "sympy_execution" &&
+          /模型利润函数生成 FOC/.test(check.message)
+      )
+    );
+    assert.ok(
+      persistedChecks.some((check) => /alpha_B - 2\*tau_A/.test(check.message))
+    );
+  }
+);

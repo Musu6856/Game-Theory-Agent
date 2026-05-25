@@ -2,6 +2,7 @@ import type {
   EquilibriumResult,
   HotellingModel,
   PropertyAnalysis,
+  ResearchMathVerificationCheck,
   SymbolDefinition,
 } from "../types";
 
@@ -11,22 +12,7 @@ export type MathVerificationResult = {
   checks: MathVerificationCheck[];
 };
 
-export type MathVerificationCheck = {
-  kind:
-    | "symbol_grounding"
-    | "calculus_recheck"
-    | "sign_condition"
-    | "sympy_execution";
-  status:
-    | "passed"
-    | "failed"
-    | "condition_insufficient"
-    | "unsupported"
-    | "manual_review";
-  message: string;
-  analysisId?: string;
-  analysisIndex?: number;
-};
+export type MathVerificationCheck = ResearchMathVerificationCheck;
 
 export function verifyEquilibriumMathConsistency({
   model,

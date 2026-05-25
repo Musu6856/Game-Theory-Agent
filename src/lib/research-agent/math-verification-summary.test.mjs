@@ -122,6 +122,50 @@ test("reports condition-insufficient checks as failed release blockers", () => {
   assert.match(summary.headline, /数学复核问题/);
 });
 
+test("includes persisted async SymPy checks in the project summary", () => {
+  const summary = buildProjectMathVerificationSummary({
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=2*alpha_B/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    propertyAnalyses: [],
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+      },
+      mathVerificationChecks: [
+        {
+          kind: "sympy_execution",
+          status: "passed",
+          message:
+            "SymPy 模型利润函数生成 FOC 通过：得到 1 条可执行残差：alpha_B - 2*tau_A。",
+        },
+      ],
+    },
+  });
+
+  assert.equal(summary.checkCounts.passed > 1, true);
+  assert.ok(
+    summary.checks.some((check) =>
+      /alpha_B - 2\*tau_A/.test(check.message)
+    )
+  );
+});
+
 function createModel() {
   return {
     symbols: [

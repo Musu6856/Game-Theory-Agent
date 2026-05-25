@@ -21,7 +21,7 @@ export type MathVerificationSummary = {
 export function buildProjectMathVerificationSummary(
   project: Pick<
     ResearchProject,
-    "hotellingModel" | "equilibriumResult" | "propertyAnalyses"
+    "hotellingModel" | "equilibriumResult" | "propertyAnalyses" | "researchSession"
   >
 ): MathVerificationSummary {
   if (!project.hotellingModel || !project.equilibriumResult) {
@@ -47,7 +47,12 @@ export function buildProjectMathVerificationSummary(
   });
   const issues = [...equilibriumResult.issues, ...propertyResult.issues];
   const checks = [...equilibriumResult.checks, ...propertyResult.checks];
-  const checkCounts = countChecks(checks);
+  const persistedChecks = project.researchSession?.mathVerificationChecks ?? [];
+  const checksWithPersisted = mergeMathVerificationChecks([
+    ...checks,
+    ...persistedChecks,
+  ]);
+  const checkCounts = countChecks(checksWithPersisted);
   const status = getSummaryStatus(issues, checkCounts);
 
   return {
@@ -57,7 +62,7 @@ export function buildProjectMathVerificationSummary(
     issueCount: issues.length,
     issues,
     checkCounts,
-    checks,
+    checks: checksWithPersisted,
   };
 }
 
@@ -122,4 +127,24 @@ function createEmptyCheckCounts() {
     unsupported: 0,
     manual_review: 0,
   };
+}
+
+function mergeMathVerificationChecks(checks: MathVerificationCheck[]) {
+  const seen = new Set<string>();
+  const merged: MathVerificationCheck[] = [];
+
+  checks.forEach((check) => {
+    const key = [
+      check.kind,
+      check.status,
+      check.analysisId ?? "",
+      check.analysisIndex ?? "",
+      check.message,
+    ].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(check);
+  });
+
+  return merged;
 }

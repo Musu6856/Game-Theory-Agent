@@ -142,6 +142,39 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
           },
         },
       ],
+      mathVerificationChecks: [
+        {
+          kind: "sympy_execution",
+          status: "passed",
+          message:
+            "SymPy 模型利润函数生成 FOC 通过：得到 1 条可执行残差：alpha_B - 2*tau_A。",
+        },
+      ],
+    },
+    hotellingModel: {
+      symbols: [],
+      sides: {
+        consumerSideName: "买家",
+        merchantSideName: "卖家",
+      },
+      platforms: ["A"],
+      timing: [],
+      utilityFunctions: [],
+      demandDerivation: "",
+      profitFunctions: [],
+      assumptions: [],
+      modelSetupDraft: "测试模型。",
+    },
+    equilibriumResult: {
+      status: "solved",
+      concept: "测试均衡",
+      solvingSteps: ["测试步骤"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["alpha_B > 0"],
+      closedForm: "tau_A^* = alpha_B/2",
+      derivation: "测试推导。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
     },
   };
 
@@ -162,7 +195,8 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
   assert.match(markdown, /最高优先级：低/);
   assert.match(markdown, /最近影响：论文草稿已更新/);
   assert.match(markdown, /## 数学验证摘要/);
-  assert.match(markdown, /状态：待验证/);
+  assert.match(markdown, /SymPy 模型利润函数生成 FOC/);
+  assert.match(markdown, /alpha_B - 2\*tau_A/);
   assert.match(markdown, /## 章节复核摘要/);
   assert.match(markdown, /状态：可继续|状态：需复核/);
   assert.match(markdown, /## 资产审核历史/);

@@ -232,7 +232,7 @@ type EvidenceSource = {
 
 “CAS 复算 v1”也已开始接入同一验证器：当均衡闭式解和性质分析里的偏导等式足够简单时，验证器会从闭式解中取出目标变量表达式，复算“目标变量对参数的偏导”，再与候选 `symbolicResult` 对比。当前覆盖线性表达式、简单分式、连等式和常见 LaTeX 写法；复杂隐式系统、矩阵雅可比和完整 SymPy 代数证明仍跳过，不作为拦截依据。
 
-“外部 SymPy 执行 v1/v2”已开始接入均衡和性质分析 runner：当轻量验证器把某条偏导标为人工复核，但闭式解和候选偏导可以整理成受限安全表达式时，`src/lib/research-agent/sympy-checker.ts` 会在有超时和输入限制的 Python/SymPy wrapper 中复算偏导；当均衡候选给出可执行 FOC 残差时，`src/lib/research-agent/sympy-equilibrium-review.ts` 会把闭式解代回 FOC 并检查残差是否为 0，还会对显式 FOC 系统调用 `sympy.solve` 做独立求解，比较候选闭式解是否匹配系统求解结果。若候选 FOC 仍是不可执行的文字描述，但模型 `profitFunctions` 能整理为安全显式表达式，系统会先由利润函数对候选闭式解变量求导，生成可执行 FOC 残差，再进入同一套残差复核和独立求解对照；待审核均衡 patch 的 note 会保留 SymPy 复核记录，说明生成的残差、通过项和人工复核项。复算失败会进入同一个有边界修复闭环；Python/SymPy 不可用、输入超限或表达式暂不支持时，系统降级为人工复核，不阻断产品运行。当前不执行模型生成的任意 Python 代码，也尚未用外部 SymPy 替代任意模型的完整均衡求解器。
+“外部 SymPy 执行 v1/v2”已开始接入均衡和性质分析 runner：当轻量验证器把某条偏导标为人工复核，但闭式解和候选偏导可以整理成受限安全表达式时，`src/lib/research-agent/sympy-checker.ts` 会在有超时和输入限制的 Python/SymPy wrapper 中复算偏导；当均衡候选给出可执行 FOC 残差时，`src/lib/research-agent/sympy-equilibrium-review.ts` 会把闭式解代回 FOC 并检查残差是否为 0，还会对显式 FOC 系统调用 `sympy.solve` 做独立求解，比较候选闭式解是否匹配系统求解结果。若候选 FOC 仍是不可执行的文字描述，但模型 `profitFunctions` 能整理为安全显式表达式，系统会先由利润函数对候选闭式解变量求导，生成可执行 FOC 残差，再进入同一套残差复核和独立求解对照；待审核均衡 patch 的 note 会保留 SymPy 复核记录，`researchSession.mathVerificationChecks` 会保留可合并进质量摘要和审计报告的已执行记录。复算失败会进入同一个有边界修复闭环；Python/SymPy 不可用、输入超限或表达式暂不支持时，系统降级为人工复核，不阻断产品运行。当前不执行模型生成的任意 Python 代码，也尚未用外部 SymPy 替代任意模型的完整均衡求解器。
 
 “数学验证 v2”已开始覆盖性质分析的符号条件：当复算出的偏导是单项表达式，并且模型假设、均衡条件或候选 `signCondition` 中明确给出参数正负时，验证器会判断候选写的“为正/为负/为零”是否与复算结果一致。当前只拦截明确写反的方向；非负/非正、条件强弱、多项表达式和隐式系统仍留给人工审核或后续更强 CAS。
 
