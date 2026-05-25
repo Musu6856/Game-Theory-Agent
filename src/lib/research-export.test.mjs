@@ -80,6 +80,28 @@ test("buildResearchProjectMarkdown includes the core research assets", () => {
   assert.match(markdown, /命题草稿/);
 });
 
+test("buildResearchProjectMarkdown exports a reproducible SymPy review script", () => {
+  const analyzed = createGeneratedResearchProject();
+
+  const markdown = buildResearchProjectMarkdown(analyzed);
+
+  assert.match(markdown, /## 可复核 SymPy 脚本/);
+  assert.match(markdown, /from sympy\.parsing\.sympy_parser import parse_expr/);
+  assert.match(markdown, /symbol_names =/);
+  assert.match(markdown, /profit_functions =/);
+  assert.match(markdown, /\("Pi_A", "tau_A q n_A_S n_A_B - s_A n_A_B"\)/);
+  assert.match(markdown, /raw_profit_foc_residuals =/);
+  assert.match(markdown, /equilibrium_residual_inputs =/);
+  assert.match(markdown, /foc_residuals = list\(equilibrium_residuals\)/);
+  assert.match(markdown, /candidate_solution =/);
+  assert.match(markdown, /\("tau_A", "\(t_S-2alpha_B\)\/\(q\)"\)/);
+  assert.match(markdown, /\("tau", "\(t_S-2alpha_B\)\/\(q\)"\)/);
+  assert.match(markdown, /candidate_residuals/);
+  assert.match(markdown, /sp\.solve\(foc_residuals/);
+  assert.match(markdown, /property_claims =/);
+  assert.match(markdown, /'target_names': \["tau_A", "tau_B"\]/);
+});
+
 test("buildResearchProjectMarkdown does not export symbolic failures as closed form solutions", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
