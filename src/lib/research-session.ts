@@ -971,11 +971,18 @@ function cleanDecisionSymbol(value: string) {
 }
 
 function normalizeDecisionToken(value: string) {
-  return cleanDecisionSymbol(value)
+  return normalizeGreekDecisionAliases(cleanDecisionSymbol(value))
     .replace(/\\/g, "")
     .replace(/[{}]/g, "")
     .replace(/\s+/g, "")
     .toLowerCase();
+}
+
+function normalizeGreekDecisionAliases(value: string) {
+  return value.replace(
+    /[\u03a4\u03c4\u{1d6bb}\u{1d6d5}\u{1d6f5}\u{1d70f}\u{1d72f}\u{1d749}\u{1d769}\u{1d783}\u{1d7a3}\u{1d7bd}]/gu,
+    "tau"
+  );
 }
 
 function isCommissionDecision(decision: string) {

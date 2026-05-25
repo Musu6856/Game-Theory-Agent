@@ -493,6 +493,42 @@ test("generates symbolic equilibrium and moves the session into equilibrium phas
   );
 });
 
+test("recognizes unicode tau decisions as commission controls", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "unicode tau commission subsidy model",
+    now: 1710000000000,
+  });
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+  );
+  assert.ok(confirmed.hotellingModel);
+
+  const unicodeTauProject = {
+    ...confirmed,
+    hotellingModel: {
+      ...confirmed.hotellingModel,
+      timing: confirmed.hotellingModel.timing.map((stage) =>
+        stage.order === 1
+          ? { ...stage, decisions: ["s_A", "s_B", "τ_A", "τ_B"] }
+          : stage
+      ),
+    },
+  };
+
+  const solved = generateSymbolicEquilibrium(unicodeTauProject);
+
+  assert.equal(solved.equilibriumResult?.status, "solved");
+  assert.match(
+    solved.equilibriumResult?.closedForm ?? "",
+    /\\tau_A\^\*=\\tau_B\^\*/
+  );
+  assert.equal(
+    solved.researchSession?.assetSummary.pendingDecision?.kind,
+    "analyze_properties"
+  );
+});
+
 test("tracks session decisions from direction discovery to solve readiness", () => {
   const initial = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
