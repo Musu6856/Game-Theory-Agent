@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { runPropertyAnalysisAgent } from "./property-runner.ts";
@@ -9,6 +10,11 @@ import {
   createExplorationProject,
   generateSymbolicEquilibrium,
 } from "../research-session.ts";
+
+const hasLocalSympy =
+  spawnSync("python", ["-c", "import sympy"], {
+    encoding: "utf8",
+  }).status === 0;
 
 function createSolvedProject() {
   const project = createExplorationProject({
@@ -812,3 +818,104 @@ test("property analysis agent repairs candidates with inconsistent derivative re
     true
   );
 });
+
+test(
+  "property analysis agent repairs candidates when SymPy catches an unsupported derivative",
+  { skip: !hasLocalSympy },
+  async () => {
+    const project = createSolvedProject();
+    const projectWithSqrtClosedForm = {
+      ...project,
+      equilibriumResult: {
+        ...project.equilibriumResult,
+        closedForm: "tau_A^* = sqrt(alpha_B)",
+        conditions: ["alpha_B > 0"],
+      },
+    };
+    const riskyAnalyses = createCandidateAnalyses().map((analysis, index) =>
+      index === 0
+        ? {
+            ...analysis,
+            id: "wrong-sqrt-buyer-network-effect",
+            target: "tau_A^*",
+            parameter: "alpha_B",
+            symbolicResult:
+              "partial tau_A^* / partial alpha_B = 1/(3*sqrt(alpha_B))",
+            signCondition: "alpha_B>0 时为正",
+            propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+            proofSketch: "对 tau_A^* 关于 alpha_B 求偏导。",
+          }
+        : analysis
+    );
+    const repairedAnalyses = createCandidateAnalyses().map((analysis, index) =>
+      index === 0
+        ? {
+            ...analysis,
+            target: "tau_A^*",
+            parameter: "alpha_B",
+            symbolicResult:
+              "partial tau_A^* / partial alpha_B = 1/(2*sqrt(alpha_B))",
+            signCondition: "alpha_B>0 时为正",
+            propositionDraft: "命题：买方网络效应增强会提高均衡佣金。",
+            proofSketch: "由 tau_A^* = sqrt(alpha_B) 直接求偏导。",
+          }
+        : analysis
+    );
+    let attempts = 0;
+
+    const result = await runPropertyAnalysisAgent(
+      {
+        rawIdea: projectWithSqrtClosedForm.rawIdea,
+        project: projectWithSqrtClosedForm,
+      },
+      {
+        id: "property-agent-sympy-repair-test",
+        now: 1710000000000,
+        analyzeProperties: async () => {
+          attempts += 1;
+          const analyses = attempts === 1 ? riskyAnalyses : repairedAnalyses;
+          return {
+            project: {
+              ...projectWithSqrtClosedForm,
+              propertyAnalyses: analyses,
+              researchSession: {
+                ...projectWithSqrtClosedForm.researchSession,
+                phase: "analysis",
+                assetSummary: {
+                  ...projectWithSqrtClosedForm.researchSession?.assetSummary,
+                  confirmedAssumptions:
+                    projectWithSqrtClosedForm.researchSession?.assetSummary
+                      .confirmedAssumptions ?? [],
+                  utilityFunctions:
+                    projectWithSqrtClosedForm.researchSession?.assetSummary
+                      .utilityFunctions ?? [],
+                  equilibriumStatus: "solved",
+                  nextActions: ["检查命题条件", "整理论文草稿"],
+                  pendingDecision: undefined,
+                },
+                messages:
+                  projectWithSqrtClosedForm.researchSession?.messages ?? [],
+              },
+            },
+            usedFallback: false,
+            assistantMessage: "性质分析候选。",
+          };
+        },
+      }
+    );
+
+    const patch = result.project.researchSession?.assetPatches?.[0];
+    const propertyChange = patch?.changes.find(
+      (change) => change.path === "propertyAnalyses"
+    );
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(propertyChange?.value, repairedAnalyses);
+    assert.equal(
+      result.agentRun.trace.some((event) =>
+        String(event.metadata?.issues ?? "").includes("SymPy")
+      ),
+      true
+    );
+  }
+);

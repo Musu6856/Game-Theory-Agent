@@ -28,6 +28,7 @@ import {
   type AgentRun,
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
+import { reviewPropertyAnalysesWithSympy } from "./sympy-property-review.ts";
 
 export type PropertyAnalysisAgentRequest = {
   rawIdea: string;
@@ -161,7 +162,7 @@ export async function runPropertyAnalysisAgent(
   agentRun = updateStepStatus(agentRun, "draft-properties", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-properties", "running", now);
-  let review = reviewPropertyAnalysisCandidates(
+  let review = await reviewPropertyAnalysisCandidates(
     candidateAnalyses,
     request.project
   );
@@ -192,7 +193,7 @@ export async function runPropertyAnalysisAgent(
     const repairedAnalyses = repairResult.project.propertyAnalyses ?? [];
 
     if (repairedAnalyses.length > 0) {
-      const repairReview = reviewPropertyAnalysisCandidates(
+      const repairReview = await reviewPropertyAnalysisCandidates(
         repairedAnalyses,
         request.project
       );
@@ -291,7 +292,7 @@ export async function runPropertyAnalysisAgent(
   };
 }
 
-function reviewPropertyAnalysisCandidates(
+async function reviewPropertyAnalysisCandidates(
   analyses: PropertyAnalysis[],
   project: ResearchProject
 ) {
@@ -334,13 +335,33 @@ function reviewPropertyAnalysisCandidates(
     }
   });
 
-  issues.push(
-    ...verifyPropertyAnalysisMathConsistency({
-      model: project.hotellingModel,
-      equilibrium: project.equilibriumResult,
-      analyses,
-    }).issues
-  );
+  const mathReview = verifyPropertyAnalysisMathConsistency({
+    model: project.hotellingModel,
+    equilibrium: project.equilibriumResult,
+    analyses,
+  });
+  issues.push(...mathReview.issues);
+
+  const sympyCandidateIndexes = mathReview.checks
+    .filter(
+      (check) =>
+        check.kind === "calculus_recheck" &&
+        (check.status === "manual_review" || check.status === "unsupported") &&
+        typeof check.analysisIndex === "number"
+    )
+    .map((check) => check.analysisIndex as number);
+
+  if (sympyCandidateIndexes.length > 0) {
+    issues.push(
+      ...(
+        await reviewPropertyAnalysesWithSympy({
+          equilibrium: project.equilibriumResult,
+          analyses,
+          onlyAnalysisIndexes: sympyCandidateIndexes,
+        })
+      ).issues
+    );
+  }
 
   return {
     ok: issues.length === 0,

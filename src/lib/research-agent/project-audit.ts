@@ -500,7 +500,13 @@ function formatMathVerificationStatus(status: "passed" | "failed" | "review_need
   }
 }
 
-function formatMathCheckKind(kind: "symbol_grounding" | "calculus_recheck" | "sign_condition") {
+function formatMathCheckKind(
+  kind:
+    | "symbol_grounding"
+    | "calculus_recheck"
+    | "sign_condition"
+    | "sympy_execution"
+) {
   switch (kind) {
     case "symbol_grounding":
       return "符号来源";
@@ -508,6 +514,8 @@ function formatMathCheckKind(kind: "symbol_grounding" | "calculus_recheck" | "si
       return "偏导复算";
     case "sign_condition":
       return "符号条件";
+    case "sympy_execution":
+      return "SymPy 执行";
   }
 }
 

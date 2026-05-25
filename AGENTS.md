@@ -29,7 +29,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - AgentRun checkpoints v1: `src/lib/research-agent/state.ts` records step-level checkpoints, action, patch id, and stop reason for trace display and safer recovery suggestions.
 - Executable checkpoint resume v1: `src/lib/research-agent/resume.ts` lets selected Agent actions retry from a failed checkpoint while preserving the original AgentRun id/history.
 - Trace replay v1: `src/lib/research-agent/trace-replay.ts` groups plan steps, trace events, and checkpoints into a user-readable execution replay.
-- CAS/SymPy v2 boundary: the current release uses the bounded internal math verifier, does not invoke external Python/SymPy, and routes unsupported expressions to manual review.
+- CAS/SymPy v2 boundary: the current release uses the bounded internal math verifier plus an optional restricted Python/SymPy derivative checker for safe property-analysis expressions; Python/SymPy unavailability, unsafe input, and unsupported expressions route to manual review. External SymPy is not yet the primary equilibrium solver and must not execute arbitrary model-generated Python code.
 - Product delivery docs now live in `docs/group-trial-guide.md`, `docs/operator-runbook.md`, `docs/demo-scenarios.md`, and `docs/group-trial-test-plan.md`.
 - The next Agent milestone is cross-project memory, background-task-level execution, and stronger automatic repair support.
 - Asset edits must remain reviewable: model, equilibrium, property-analysis, and paper-output changes should be proposed as patches before application.

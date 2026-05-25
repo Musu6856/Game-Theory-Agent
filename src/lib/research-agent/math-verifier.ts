@@ -12,7 +12,11 @@ export type MathVerificationResult = {
 };
 
 export type MathVerificationCheck = {
-  kind: "symbol_grounding" | "calculus_recheck" | "sign_condition";
+  kind:
+    | "symbol_grounding"
+    | "calculus_recheck"
+    | "sign_condition"
+    | "sympy_execution";
   status:
     | "passed"
     | "failed"
