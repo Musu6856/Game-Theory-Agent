@@ -964,7 +964,7 @@ function executeSympyFocGenerationScript({
         residuals: parsed.residuals ?? [],
         message: `SymPy 模型利润函数生成 FOC 通过：得到 ${
           parsed.residuals?.length ?? 0
-        } 条可执行残差。`,
+        } 条可执行残差：${(parsed.residuals ?? []).join("、")}。`,
       });
     });
 

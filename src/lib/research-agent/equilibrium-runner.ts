@@ -17,6 +17,7 @@ import {
   recordProposedPatchStep,
 } from "./patch-proposals.ts";
 import { createEquilibriumSolvingPlan } from "./planner.ts";
+import type { MathVerificationCheck } from "./math-verifier.ts";
 import {
   createResumableAgentRun,
   shouldSkipCompletedStep,
@@ -257,6 +258,7 @@ export async function runEquilibriumSolvingAgent(
     now,
     sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
     riskNotes: review.issues,
+    reviewChecks: review.checks,
   });
   const proposal = recordProposedPatchStep({
     agentRun,
@@ -321,25 +323,21 @@ async function reviewEquilibriumCandidate(
     issues.push("缺少存在条件或内点条件。");
   }
 
-  issues.push(
-    ...verifyEquilibriumMathConsistency({
-      model: project.hotellingModel,
-      equilibrium,
-    }).issues
-  );
-
-  issues.push(
-    ...(
-      await reviewEquilibriumWithSympy({
-        model: project.hotellingModel,
-        equilibrium,
-      })
-    ).issues
-  );
+  const consistencyReview = verifyEquilibriumMathConsistency({
+    model: project.hotellingModel,
+    equilibrium,
+  });
+  issues.push(...consistencyReview.issues);
+  const sympyReview = await reviewEquilibriumWithSympy({
+    model: project.hotellingModel,
+    equilibrium,
+  });
+  issues.push(...sympyReview.issues);
 
   return {
     ok: issues.length === 0,
     issues,
+    checks: [...consistencyReview.checks, ...sympyReview.checks],
   };
 }
 
@@ -356,16 +354,18 @@ function createEquilibriumCandidatePatch({
   now,
   sourceMessageId,
   riskNotes,
+  reviewChecks,
 }: {
   equilibrium: EquilibriumResult;
   now: number;
   sourceMessageId?: string;
   riskNotes: string[];
+  reviewChecks: MathVerificationCheck[];
 }) {
-  const note =
-    riskNotes.length > 0
-      ? `Agent 自检提示：${riskNotes.join("；")}`
-      : "Agent 自检未发现阻断性质分析的明显风险。";
+  const note = createEquilibriumPatchNote({
+    riskNotes,
+    reviewChecks,
+  });
   const changes: ResearchAssetChange[] = [
     {
       kind: "replace",
@@ -383,6 +383,45 @@ function createEquilibriumCandidatePatch({
     createdAt: now,
     sourceMessageId,
   });
+}
+
+function createEquilibriumPatchNote({
+  riskNotes,
+  reviewChecks,
+}: {
+  riskNotes: string[];
+  reviewChecks: MathVerificationCheck[];
+}) {
+  const lines = [
+    riskNotes.length > 0
+      ? `Agent 自检提示：${riskNotes.join("；")}`
+      : "Agent 自检未发现阻断性质分析的明显风险。",
+  ];
+  const sympyNotes = reviewChecks
+    .filter((check) => check.kind === "sympy_execution")
+    .map((check) => `${formatCheckStatusForNote(check.status)}：${check.message}`)
+    .slice(0, 4);
+
+  if (sympyNotes.length > 0) {
+    lines.push(`SymPy 复核记录：${sympyNotes.join("；")}`);
+  }
+
+  return lines.join(" ");
+}
+
+function formatCheckStatusForNote(status: MathVerificationCheck["status"]) {
+  switch (status) {
+    case "passed":
+      return "已通过";
+    case "failed":
+      return "需修正";
+    case "condition_insufficient":
+      return "条件不足";
+    case "unsupported":
+      return "暂不支持";
+    case "manual_review":
+      return "人工复核";
+  }
 }
 
 function attachEquilibriumPatchForReview({

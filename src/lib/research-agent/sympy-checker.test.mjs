@@ -118,5 +118,6 @@ test(
     assert.equal(result.ok, true);
     assert.deepEqual(result.residuals, ["alpha_B - 2*tau_A"]);
     assert.match(result.message, /FOC/);
+    assert.match(result.message, /alpha_B - 2\*tau_A/);
   }
 );

@@ -180,5 +180,8 @@ test(
     assert.ok(
       result.checks.some((check) => /模型利润函数生成 FOC/.test(check.message))
     );
+    assert.ok(
+      result.checks.some((check) => /alpha_B - 2\*tau_A/.test(check.message))
+    );
   }
 );
