@@ -9,12 +9,13 @@ import {
   getResearchAssetPatchReviewLoad,
 } from "./research-pending-patches-layout.ts";
 
-test("pending asset patch panel owns its overflow instead of growing past the right pane", () => {
+test("pending asset patch panel participates in the right pane scroll area", () => {
   const className = getPendingAssetPatchPanelClassName();
 
-  assert.match(className, /shrink-0/);
-  assert.match(className, /overflow-y-auto/);
-  assert.match(className, /max-h-/);
+  assert.match(className, /rounded-md/);
+  assert.doesNotMatch(className, /shrink-0/);
+  assert.doesNotMatch(className, /border-b/);
+  assert.doesNotMatch(className, /max-h-/);
 });
 
 test("pending asset patches show proposed changes newest first", () => {

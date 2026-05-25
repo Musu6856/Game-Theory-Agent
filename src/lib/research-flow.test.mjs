@@ -392,6 +392,37 @@ test("research flow keeps the model-tab solve action available after stale model
   assert.equal(state.canSolveEquilibrium, true);
 });
 
+test("research flow does not label first equilibrium generation as stale", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "研究外卖平台定价策略",
+    now: 1710000000000,
+  });
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+  );
+  const staleWithoutPriorEquilibrium = {
+    ...confirmed,
+    researchSession: {
+      ...confirmed.researchSession,
+      assetFreshness: {
+        ...confirmed.researchSession.assetFreshness,
+        equilibrium: "stale",
+      },
+    },
+  };
+
+  const state = getResearchFlowState(staleWithoutPriorEquilibrium);
+
+  assert.equal(
+    staleWithoutPriorEquilibrium.equilibriumResult?.status,
+    "needs_revision"
+  );
+  assert.equal(state.canSolveEquilibrium, true);
+  assert.equal(state.isEquilibriumStale, false);
+  assert.equal(state.equilibriumStatusLabel, "等待生成符号均衡推导");
+});
+
 test("model tab primary action switches to start symbolic solving after confirmation", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",

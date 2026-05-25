@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CheckCheck, Eye, X } from "lucide-react";
+import { Check, CheckCheck, X } from "lucide-react";
 
 import type { ResearchAssetPatch } from "@/lib/types";
 import {
@@ -20,7 +20,6 @@ import {
 
 type PendingAssetPatchesProps = {
   patches: ResearchAssetPatch[];
-  onReview?: (patchId: string) => void;
   onApply?: (patchId: string) => void;
   onApplyQuickReview?: (patchIds: string[]) => void;
   onReject?: (patchId: string) => void;
@@ -28,7 +27,6 @@ type PendingAssetPatchesProps = {
 
 export function PendingAssetPatches({
   patches,
-  onReview,
   onApply,
   onApplyQuickReview,
   onReject,
@@ -80,7 +78,6 @@ export function PendingAssetPatches({
                   </div>
                   <PatchActions
                     patchId={patch.id}
-                    onReview={onReview}
                     onApply={onApply}
                     onReject={onReject}
                   />
@@ -147,26 +144,15 @@ function getReviewLoadBadgeClassName(
 
 function PatchActions({
   patchId,
-  onReview,
   onApply,
   onReject,
 }: {
   patchId: string;
-  onReview?: (patchId: string) => void;
   onApply?: (patchId: string) => void;
   onReject?: (patchId: string) => void;
 }) {
   return (
     <div className="flex gap-1">
-      <button
-        type="button"
-        className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium disabled:opacity-50"
-        disabled={!onReview}
-        onClick={() => onReview?.(patchId)}
-      >
-        <Eye size={13} />
-        查看
-      </button>
       <button
         type="button"
         className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground disabled:opacity-50"

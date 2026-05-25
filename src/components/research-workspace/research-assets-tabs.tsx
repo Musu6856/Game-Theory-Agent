@@ -23,7 +23,7 @@ export function ResearchAssetsTabs({
   onActiveTabChange,
 }: ResearchAssetsTabsProps) {
   return (
-    <div className="flex gap-1 overflow-x-auto border-b px-3 py-2" role="tablist" aria-label="研究资产">
+    <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border/70 bg-background px-3 py-1.5" role="tablist" aria-label="研究资产">
       {tabs.map((tab) => (
         <button
           key={tab.id}

@@ -199,6 +199,9 @@ export function getResearchFlowState(
   const session = sessionOverride ?? project?.researchSession;
   const pendingKind = session?.assetSummary.pendingDecision?.kind;
   const equilibriumStatus = project?.equilibriumResult?.status;
+  const hasGeneratedEquilibriumResult = isGeneratedEquilibriumStatus(
+    equilibriumStatus
+  );
   const hasPropertyAnalyses = Boolean(project?.propertyAnalyses?.length);
   const hasSolvableEquilibrium = isUsableEquilibriumStatus(equilibriumStatus);
   const assetFreshness =
@@ -225,6 +228,8 @@ export function getResearchFlowState(
   );
   const hasStalePropertyAnalyses =
     hasPropertyAnalyses && assetFreshness.properties === "stale";
+  const isEquilibriumStale =
+    hasGeneratedEquilibriumResult && assetFreshness.equilibrium === "stale";
 
   const canConfirmModel =
     Boolean(project?.hotellingModel) &&
@@ -236,7 +241,7 @@ export function getResearchFlowState(
     (pendingKind === "solve_equilibrium" ||
       equilibriumStatus === "symbolic_failure") &&
     (!hasPropertyAnalyses ||
-      assetFreshness.equilibrium === "stale" ||
+      isEquilibriumStale ||
       equilibriumStatus === "symbolic_failure" ||
       hasStalePropertyAnalyses);
   const canAnalyzeProperties =
@@ -252,7 +257,7 @@ export function getResearchFlowState(
     !hasPendingPropertiesPatch &&
     !hasPendingPaperPatch &&
     !hasStalePropertyAnalyses &&
-    assetFreshness.equilibrium !== "stale";
+    !isEquilibriumStale;
 
   return {
     pendingKind,
@@ -262,7 +267,7 @@ export function getResearchFlowState(
     canDraftPaper,
     hasPropertyAnalyses,
     assetFreshness,
-    isEquilibriumStale: assetFreshness.equilibrium === "stale",
+    isEquilibriumStale,
     isPropertyAnalysisStale: hasStalePropertyAnalyses,
     equilibriumStatusLabel:
       equilibriumStatus === "symbolic_failure"
@@ -284,6 +289,10 @@ export function getResearchFlowState(
 
 function isUsableEquilibriumStatus(status?: EquilibriumResult["status"]) {
   return status === "solved";
+}
+
+function isGeneratedEquilibriumStatus(status?: EquilibriumResult["status"]) {
+  return status === "solved" || status === "symbolic_failure";
 }
 
 function createFreshResearchAssetFreshness(): ResearchAssetFreshnessMap {

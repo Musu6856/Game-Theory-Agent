@@ -7,7 +7,7 @@ export type ResearchAssetPatchReviewLoad = {
 };
 
 export function getPendingAssetPatchPanelClassName() {
-  return "max-h-[min(42dvh,28rem)] shrink-0 overflow-y-auto border-b bg-muted/30 p-3";
+  return "rounded-md border bg-muted/25 p-3";
 }
 
 export function getPendingAssetPatchesForDisplay<
