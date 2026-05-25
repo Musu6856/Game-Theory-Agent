@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
-import { runSympyDerivativeCheck } from "./sympy-checker.ts";
+import {
+  runSympyDerivativeCheck,
+  runSympySolveCheck,
+} from "./sympy-checker.ts";
 
 const hasLocalSympy =
   spawnSync("python", ["-c", "import sympy"], {
@@ -57,3 +60,39 @@ test("SymPy checker degrades to manual review when Python is unavailable", async
   assert.equal(result.ok, true);
   assert.match(result.message, /不可用|unavailable|无法启动/i);
 });
+
+test(
+  "SymPy checker independently solves explicit FOCs and matches the candidate",
+  { skip: !hasLocalSympy },
+  async () => {
+    const result = await runSympySolveCheck({
+      residuals: ["2*tau_A - alpha_B"],
+      variables: ["tau_A"],
+      candidate: { tau_A: "alpha_B/2" },
+      timeoutMs: 5000,
+    });
+
+    assert.equal(result.status, "passed");
+    assert.equal(result.ok, true);
+    assert.match(result.message, /独立求解/);
+    assert.match(JSON.stringify(result.solutions), /alpha_B\/2/);
+  }
+);
+
+test(
+  "SymPy checker rejects a candidate that differs from the independent solution",
+  { skip: !hasLocalSympy },
+  async () => {
+    const result = await runSympySolveCheck({
+      residuals: ["2*tau_A - alpha_B"],
+      variables: ["tau_A"],
+      candidate: { tau_A: "alpha_B/3" },
+      timeoutMs: 5000,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.ok, false);
+    assert.match(result.message, /独立求解/);
+    assert.match(JSON.stringify(result.solutions), /alpha_B\/2/);
+  }
+);

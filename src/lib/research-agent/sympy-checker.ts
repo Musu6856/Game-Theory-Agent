@@ -35,6 +35,22 @@ export type SympyResidualCheckResult = {
   residuals?: string[];
 };
 
+export type SympySolveCheckRequest = {
+  residuals: string[];
+  variables: string[];
+  candidate: Record<string, string>;
+  pythonCommand?: string;
+  timeoutMs?: number;
+  maxInputLength?: number;
+};
+
+export type SympySolveCheckResult = {
+  ok: boolean;
+  status: MathVerificationCheck["status"];
+  message: string;
+  solutions?: Array<Record<string, string>>;
+};
+
 type SympyPayload = {
   expression: string;
   parameter: string;
@@ -46,12 +62,19 @@ type SympyResidualPayload = {
   substitutions: Record<string, string>;
 };
 
+type SympySolvePayload = {
+  residuals: string[];
+  variables: string[];
+  candidate: Record<string, string>;
+};
+
 type PythonSympyResult = {
   ok?: boolean;
   expected?: string;
   claimed?: string;
   difference?: string;
   residuals?: string[];
+  solutions?: Array<Record<string, string>>;
   error?: string;
 };
 
@@ -168,6 +191,68 @@ except Exception as exc:
     sys.exit(1)
 `;
 
+const SYMPY_SOLVE_SCRIPT = `
+import json
+import re
+import sys
+
+try:
+    import sympy as sp
+except Exception as exc:
+    print(json.dumps({"error": "sympy_import_failed: " + str(exc)}, ensure_ascii=False))
+    sys.exit(2)
+
+SAFE_RE = re.compile(r"^[A-Za-z0-9_+\\-*/().,\\s^]+$")
+
+def normalize(value):
+    return str(value).replace("^", "**").strip()
+
+def parse_expr(value, local_dict):
+    normalized = normalize(value)
+    if not SAFE_RE.match(normalized):
+        raise ValueError("unsafe expression")
+    return sp.sympify(normalized, locals=local_dict)
+
+try:
+    payload = json.loads(sys.stdin.read())
+    residual_texts = [normalize(value) for value in payload.get("residuals", [])]
+    variable_names = [normalize(value) for value in payload.get("variables", [])]
+    candidate_text = {
+        normalize(key): normalize(value)
+        for key, value in payload.get("candidate", {}).items()
+    }
+    combined = " ".join(
+        residual_texts + variable_names + list(candidate_text.keys()) + list(candidate_text.values())
+    )
+    names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", combined))
+    names.discard("sqrt")
+    local_dict = {name: sp.symbols(name, real=True) for name in names}
+    local_dict["sqrt"] = sp.sqrt
+
+    residuals = [parse_expr(value, local_dict) for value in residual_texts]
+    variables = [local_dict[name] for name in variable_names if name in local_dict]
+    candidate = {
+        local_dict[name]: parse_expr(value, local_dict)
+        for name, value in candidate_text.items()
+        if name in local_dict
+    }
+    solutions = sp.solve(residuals, variables, dict=True, simplify=True)
+    serialized = [
+        {str(symbol): str(sp.simplify(value)) for symbol, value in solution.items()}
+        for solution in solutions
+    ]
+    matched = False
+    for solution in solutions:
+        if all(symbol in solution and sp.simplify(solution[symbol] - value) == 0 for symbol, value in candidate.items()):
+            matched = True
+            break
+
+    print(json.dumps({"ok": bool(matched), "solutions": serialized}, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+    sys.exit(1)
+`;
+
 export async function runSympyDerivativeCheck({
   expression,
   parameter,
@@ -218,6 +303,35 @@ export async function runSympyResidualCheck({
   }
 
   return executeSympyResidualScript({
+    payload,
+    pythonCommand,
+    timeoutMs,
+  });
+}
+
+export async function runSympySolveCheck({
+  residuals,
+  variables,
+  candidate,
+  pythonCommand = process.env.PAPERFORGE_SYMPY_PYTHON ?? "python",
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  maxInputLength = DEFAULT_MAX_INPUT_LENGTH,
+}: SympySolveCheckRequest): Promise<SympySolveCheckResult> {
+  const payload = normalizeSolvePayload({
+    residuals,
+    variables,
+    candidate,
+  });
+  const validationError = validateSolvePayload(payload, maxInputLength);
+  if (validationError) {
+    return {
+      ok: true,
+      status: "unsupported",
+      message: validationError,
+    };
+  }
+
+  return executeSympySolveScript({
     payload,
     pythonCommand,
     timeoutMs,
@@ -286,6 +400,19 @@ function normalizeResidualPayload(
   };
 }
 
+function normalizeSolvePayload(payload: SympySolvePayload): SympySolvePayload {
+  return {
+    residuals: payload.residuals.map(normalizeExpressionForSympy),
+    variables: payload.variables.map(normalizeExpressionForSympy),
+    candidate: Object.fromEntries(
+      Object.entries(payload.candidate).map(([key, value]) => [
+        normalizeExpressionForSympy(key),
+        normalizeExpressionForSympy(value),
+      ])
+    ),
+  };
+}
+
 function validatePayload(payload: SympyPayload, maxInputLength: number) {
   const values = [
     payload.expression,
@@ -332,6 +459,34 @@ function validateResidualPayload(
 
   if (values.some((value) => !SAFE_SYMPY_INPUT_PATTERN.test(value))) {
     return "SymPy 残差复算输入包含暂不支持的符号，已转入人工复核。";
+  }
+
+  return "";
+}
+
+function validateSolvePayload(payload: SympySolvePayload, maxInputLength: number) {
+  const values = [
+    ...payload.residuals,
+    ...payload.variables,
+    ...Object.keys(payload.candidate),
+    ...Object.values(payload.candidate),
+  ];
+
+  if (
+    payload.residuals.length === 0 ||
+    payload.variables.length === 0 ||
+    Object.keys(payload.candidate).length === 0 ||
+    values.some((value) => value.length === 0)
+  ) {
+    return "SymPy 独立求解缺少 FOC、变量或候选闭式解，已转入人工复核。";
+  }
+
+  if (values.some((value) => value.length > maxInputLength)) {
+    return "SymPy 独立求解输入过长，已转入人工复核。";
+  }
+
+  if (values.some((value) => !SAFE_SYMPY_INPUT_PATTERN.test(value))) {
+    return "SymPy 独立求解输入包含暂不支持的符号，已转入人工复核。";
   }
 
   return "";
@@ -504,6 +659,91 @@ function executeSympyResidualScript({
         status: "failed",
         residuals: parsed.residuals,
         message: `SymPy 残差复算不一致：闭式解代回 FOC 后残差为 ${(parsed.residuals ?? []).join("、")}。`,
+      });
+    });
+
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+function executeSympySolveScript({
+  payload,
+  pythonCommand,
+  timeoutMs,
+}: {
+  payload: SympySolvePayload;
+  pythonCommand: string;
+  timeoutMs: number;
+}) {
+  return new Promise<SympySolveCheckResult>((resolve) => {
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+    const timeoutRef: { timer?: ReturnType<typeof setTimeout> } = {};
+    const child = spawn(pythonCommand, ["-c", SYMPY_SOLVE_SCRIPT], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    const finish = (result: SympySolveCheckResult) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutRef.timer) clearTimeout(timeoutRef.timer);
+      resolve(result);
+    };
+
+    timeoutRef.timer = setTimeout(() => {
+      child.kill();
+      finish({
+        ok: true,
+        status: "manual_review",
+        message: "SymPy 独立求解超时，已转入人工复核。",
+      });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      finish({
+        ok: true,
+        status: "manual_review",
+        message: `SymPy 运行时不可用，已转入人工复核：${error.message}`,
+      });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+
+      const parsed = parsePythonResult(stdout);
+      if (!parsed || parsed.error || code !== 0) {
+        finish({
+          ok: true,
+          status: "manual_review",
+          message: `SymPy 独立求解暂不可用，已转入人工复核：${
+            parsed?.error ?? stderr.trim() ?? `退出码 ${code}`
+          }`,
+        });
+        return;
+      }
+
+      if (parsed.ok) {
+        finish({
+          ok: true,
+          status: "passed",
+          solutions: parsed.solutions,
+          message: "SymPy 独立求解通过：候选闭式解与系统求解结果一致。",
+        });
+        return;
+      }
+
+      finish({
+        ok: false,
+        status: "failed",
+        solutions: parsed.solutions,
+        message: `SymPy 独立求解不一致：系统求得 ${JSON.stringify(parsed.solutions ?? [])}，候选闭式解未匹配。`,
       });
     });
 

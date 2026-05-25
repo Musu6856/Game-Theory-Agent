@@ -35,6 +35,7 @@ test(
           check.kind === "sympy_execution" && check.status === "passed"
       )
     );
+    assert.ok(result.checks.some((check) => /独立求解/.test(check.message)));
   }
 );
 
@@ -64,6 +65,7 @@ test(
           check.kind === "sympy_execution" && check.status === "failed"
       )
     );
+    assert.ok(result.checks.some((check) => /独立求解/.test(check.message)));
   }
 );
 

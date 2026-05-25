@@ -6,23 +6,33 @@ import type {
 import {
   normalizeExpressionForSympy,
   runSympyResidualCheck,
+  runSympySolveCheck,
   type SympyResidualCheckRequest,
   type SympyResidualCheckResult,
+  type SympySolveCheckRequest,
+  type SympySolveCheckResult,
 } from "./sympy-checker.ts";
 
 export type SympyResidualChecker = (
   request: SympyResidualCheckRequest
 ) => Promise<SympyResidualCheckResult>;
 
+export type SympySolveChecker = (
+  request: SympySolveCheckRequest
+) => Promise<SympySolveCheckResult>;
+
 export async function reviewEquilibriumWithSympy({
   equilibrium,
   checker = runSympyResidualCheck,
+  solveChecker = runSympySolveCheck,
 }: {
   equilibrium: EquilibriumResult;
   checker?: SympyResidualChecker;
+  solveChecker?: SympySolveChecker;
 }): Promise<MathVerificationResult> {
   const substitutions = parseClosedFormSubstitutions(equilibrium.closedForm);
   const residuals = parseFocResiduals(equilibrium.focs);
+  const variables = Object.keys(substitutions);
   const issues: string[] = [];
   const checks: MathVerificationCheck[] = [];
 
@@ -55,11 +65,55 @@ export async function reviewEquilibriumWithSympy({
     issues.push(result.message);
   }
 
+  const solveResult = await runSingleSolveCheck({
+    checker: solveChecker,
+    residuals,
+    variables,
+    candidate: substitutions,
+  });
+  checks.push({
+    kind: "sympy_execution",
+    status: solveResult.status,
+    message: solveResult.message,
+  });
+
+  if (!solveResult.ok) {
+    issues.push(solveResult.message);
+  }
+
   return {
     ok: issues.length === 0,
     issues,
     checks,
   };
+}
+
+async function runSingleSolveCheck({
+  checker,
+  residuals,
+  variables,
+  candidate,
+}: {
+  checker: SympySolveChecker;
+  residuals: string[];
+  variables: string[];
+  candidate: Record<string, string>;
+}) {
+  try {
+    return await checker({
+      residuals,
+      variables,
+      candidate,
+    });
+  } catch (error) {
+    return {
+      ok: true,
+      status: "manual_review" as const,
+      message: `SymPy 独立求解异常，已转入人工复核：${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
 }
 
 async function runSingleResidualCheck({
