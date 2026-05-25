@@ -6,6 +6,7 @@ import {
   runSympyDerivativeCheck,
   runSympySolveCheck,
 } from "./sympy-checker.ts";
+import * as sympyChecker from "./sympy-checker.ts";
 
 const hasLocalSympy =
   spawnSync("python", ["-c", "import sympy"], {
@@ -94,5 +95,28 @@ test(
     assert.equal(result.ok, false);
     assert.match(result.message, /独立求解/);
     assert.match(JSON.stringify(result.solutions), /alpha_B\/2/);
+  }
+);
+
+test(
+  "SymPy checker generates explicit FOC residuals from safe objective expressions",
+  { skip: !hasLocalSympy },
+  async () => {
+    assert.equal(typeof sympyChecker.runSympyFocGenerationCheck, "function");
+
+    const result = await sympyChecker.runSympyFocGenerationCheck({
+      objectives: [
+        {
+          expression: "alpha_B*tau_A - tau_A^2",
+          variable: "tau_A",
+        },
+      ],
+      timeoutMs: 5000,
+    });
+
+    assert.equal(result.status, "passed");
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.residuals, ["alpha_B - 2*tau_A"]);
+    assert.match(result.message, /FOC/);
   }
 );

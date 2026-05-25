@@ -51,6 +51,25 @@ export type SympySolveCheckResult = {
   solutions?: Array<Record<string, string>>;
 };
 
+export type SympyFocGenerationObjective = {
+  expression: string;
+  variable: string;
+};
+
+export type SympyFocGenerationCheckRequest = {
+  objectives: SympyFocGenerationObjective[];
+  pythonCommand?: string;
+  timeoutMs?: number;
+  maxInputLength?: number;
+};
+
+export type SympyFocGenerationCheckResult = {
+  ok: boolean;
+  status: MathVerificationCheck["status"];
+  message: string;
+  residuals?: string[];
+};
+
 type SympyPayload = {
   expression: string;
   parameter: string;
@@ -66,6 +85,10 @@ type SympySolvePayload = {
   residuals: string[];
   variables: string[];
   candidate: Record<string, string>;
+};
+
+type SympyFocGenerationPayload = {
+  objectives: SympyFocGenerationObjective[];
 };
 
 type PythonSympyResult = {
@@ -253,6 +276,61 @@ except Exception as exc:
     sys.exit(1)
 `;
 
+const SYMPY_FOC_GENERATION_SCRIPT = `
+import json
+import re
+import sys
+
+try:
+    import sympy as sp
+except Exception as exc:
+    print(json.dumps({"error": "sympy_import_failed: " + str(exc)}, ensure_ascii=False))
+    sys.exit(2)
+
+SAFE_RE = re.compile(r"^[A-Za-z0-9_+\\-*/().,\\s^]+$")
+
+def normalize(value):
+    return str(value).replace("^", "**").strip()
+
+def parse_expr(value, local_dict):
+    normalized = normalize(value)
+    if not SAFE_RE.match(normalized):
+        raise ValueError("unsafe expression")
+    return sp.sympify(normalized, locals=local_dict)
+
+try:
+    payload = json.loads(sys.stdin.read())
+    objectives = [
+        {
+            "expression": normalize(item.get("expression", "")),
+            "variable": normalize(item.get("variable", "")),
+        }
+        for item in payload.get("objectives", [])
+    ]
+    combined = " ".join(
+        [item["expression"] for item in objectives] +
+        [item["variable"] for item in objectives]
+    )
+    names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", combined))
+    names.discard("sqrt")
+    local_dict = {name: sp.symbols(name, real=True) for name in names}
+    local_dict["sqrt"] = sp.sqrt
+
+    residuals = []
+    for item in objectives:
+        variable_text = item["variable"]
+        if variable_text not in local_dict:
+            local_dict[variable_text] = sp.symbols(variable_text, real=True)
+        expression = parse_expr(item["expression"], local_dict)
+        variable = local_dict[variable_text]
+        residuals.append(str(sp.simplify(sp.diff(expression, variable))))
+
+    print(json.dumps({"ok": True, "residuals": residuals}, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+    sys.exit(1)
+`;
+
 export async function runSympyDerivativeCheck({
   expression,
   parameter,
@@ -338,6 +416,34 @@ export async function runSympySolveCheck({
   });
 }
 
+export async function runSympyFocGenerationCheck({
+  objectives,
+  pythonCommand = process.env.PAPERFORGE_SYMPY_PYTHON ?? "python",
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  maxInputLength = DEFAULT_MAX_INPUT_LENGTH,
+}: SympyFocGenerationCheckRequest): Promise<SympyFocGenerationCheckResult> {
+  const payload = normalizeFocGenerationPayload({
+    objectives,
+  });
+  const validationError = validateFocGenerationPayload(
+    payload,
+    maxInputLength
+  );
+  if (validationError) {
+    return {
+      ok: true,
+      status: "unsupported",
+      message: validationError,
+    };
+  }
+
+  return executeSympyFocGenerationScript({
+    payload,
+    pythonCommand,
+    timeoutMs,
+  });
+}
+
 export function normalizeExpressionForSympy(value: string) {
   let normalized = value
     .replace(/\\left/g, "")
@@ -410,6 +516,17 @@ function normalizeSolvePayload(payload: SympySolvePayload): SympySolvePayload {
         normalizeExpressionForSympy(value),
       ])
     ),
+  };
+}
+
+function normalizeFocGenerationPayload(
+  payload: SympyFocGenerationPayload
+): SympyFocGenerationPayload {
+  return {
+    objectives: payload.objectives.map((objective) => ({
+      expression: normalizeExpressionForSympy(objective.expression),
+      variable: normalizeExpressionForSympy(objective.variable),
+    })),
   };
 }
 
@@ -487,6 +604,33 @@ function validateSolvePayload(payload: SympySolvePayload, maxInputLength: number
 
   if (values.some((value) => !SAFE_SYMPY_INPUT_PATTERN.test(value))) {
     return "SymPy 独立求解输入包含暂不支持的符号，已转入人工复核。";
+  }
+
+  return "";
+}
+
+function validateFocGenerationPayload(
+  payload: SympyFocGenerationPayload,
+  maxInputLength: number
+) {
+  const values = payload.objectives.flatMap((objective) => [
+    objective.expression,
+    objective.variable,
+  ]);
+
+  if (
+    payload.objectives.length === 0 ||
+    values.some((value) => value.length === 0)
+  ) {
+    return "SymPy 模型利润函数生成 FOC 缺少利润表达式或求导变量，已转入人工复核。";
+  }
+
+  if (values.some((value) => value.length > maxInputLength)) {
+    return "SymPy 模型利润函数生成 FOC 输入过长，已转入人工复核。";
+  }
+
+  if (values.some((value) => !SAFE_SYMPY_INPUT_PATTERN.test(value))) {
+    return "SymPy 模型利润函数生成 FOC 输入包含暂不支持的符号，已转入人工复核。";
   }
 
   return "";
@@ -744,6 +888,83 @@ function executeSympySolveScript({
         status: "failed",
         solutions: parsed.solutions,
         message: `SymPy 独立求解不一致：系统求得 ${JSON.stringify(parsed.solutions ?? [])}，候选闭式解未匹配。`,
+      });
+    });
+
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+function executeSympyFocGenerationScript({
+  payload,
+  pythonCommand,
+  timeoutMs,
+}: {
+  payload: SympyFocGenerationPayload;
+  pythonCommand: string;
+  timeoutMs: number;
+}) {
+  return new Promise<SympyFocGenerationCheckResult>((resolve) => {
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+    const timeoutRef: { timer?: ReturnType<typeof setTimeout> } = {};
+    const child = spawn(pythonCommand, ["-c", SYMPY_FOC_GENERATION_SCRIPT], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    const finish = (result: SympyFocGenerationCheckResult) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutRef.timer) clearTimeout(timeoutRef.timer);
+      resolve(result);
+    };
+
+    timeoutRef.timer = setTimeout(() => {
+      child.kill();
+      finish({
+        ok: true,
+        status: "manual_review",
+        message: "SymPy 模型利润函数生成 FOC 超时，已转入人工复核。",
+      });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      finish({
+        ok: true,
+        status: "manual_review",
+        message: `SymPy 运行时不可用，已转入人工复核：${error.message}`,
+      });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+
+      const parsed = parsePythonResult(stdout);
+      if (!parsed || parsed.error || code !== 0) {
+        finish({
+          ok: true,
+          status: "manual_review",
+          message: `SymPy 模型利润函数生成 FOC 暂不可用，已转入人工复核：${
+            parsed?.error ?? stderr.trim() ?? `退出码 ${code}`
+          }`,
+        });
+        return;
+      }
+
+      finish({
+        ok: true,
+        status: "passed",
+        residuals: parsed.residuals ?? [],
+        message: `SymPy 模型利润函数生成 FOC 通过：得到 ${
+          parsed.residuals?.length ?? 0
+        } 条可执行残差。`,
       });
     });
 

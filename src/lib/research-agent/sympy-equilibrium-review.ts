@@ -1,12 +1,15 @@
-import type { EquilibriumResult } from "../types";
+import type { EquilibriumResult, HotellingModel } from "../types";
 import type {
   MathVerificationCheck,
   MathVerificationResult,
 } from "./math-verifier.ts";
 import {
   normalizeExpressionForSympy,
+  runSympyFocGenerationCheck,
   runSympyResidualCheck,
   runSympySolveCheck,
+  type SympyFocGenerationCheckRequest,
+  type SympyFocGenerationCheckResult,
   type SympyResidualCheckRequest,
   type SympyResidualCheckResult,
   type SympySolveCheckRequest,
@@ -21,20 +24,46 @@ export type SympySolveChecker = (
   request: SympySolveCheckRequest
 ) => Promise<SympySolveCheckResult>;
 
+export type SympyFocGenerationChecker = (
+  request: SympyFocGenerationCheckRequest
+) => Promise<SympyFocGenerationCheckResult>;
+
 export async function reviewEquilibriumWithSympy({
+  model,
   equilibrium,
   checker = runSympyResidualCheck,
   solveChecker = runSympySolveCheck,
+  focGenerationChecker = runSympyFocGenerationCheck,
 }: {
+  model?: HotellingModel;
   equilibrium: EquilibriumResult;
   checker?: SympyResidualChecker;
   solveChecker?: SympySolveChecker;
+  focGenerationChecker?: SympyFocGenerationChecker;
 }): Promise<MathVerificationResult> {
   const substitutions = parseClosedFormSubstitutions(equilibrium.closedForm);
-  const residuals = parseFocResiduals(equilibrium.focs);
+  let residuals = parseFocResiduals(equilibrium.focs);
+  let residualSource: "candidate_foc" | "model_profit_foc" = "candidate_foc";
   const variables = Object.keys(substitutions);
   const issues: string[] = [];
   const checks: MathVerificationCheck[] = [];
+
+  if (residuals.length === 0 && model && variables.length > 0) {
+    const generated = await runModelFocGenerationCheck({
+      checker: focGenerationChecker,
+      model,
+      variables,
+    });
+    checks.push({
+      kind: "sympy_execution",
+      status: generated.status,
+      message: generated.message,
+    });
+    if ((generated.residuals?.length ?? 0) > 0) {
+      residuals = generated.residuals ?? [];
+      residualSource = "model_profit_foc";
+    }
+  }
 
   if (residuals.length === 0 || Object.keys(substitutions).length === 0) {
     checks.push({
@@ -62,7 +91,7 @@ export async function reviewEquilibriumWithSympy({
   });
 
   if (!result.ok) {
-    issues.push(result.message);
+    issues.push(formatSympyIssue(result.message, residualSource));
   }
 
   const solveResult = await runSingleSolveCheck({
@@ -78,7 +107,7 @@ export async function reviewEquilibriumWithSympy({
   });
 
   if (!solveResult.ok) {
-    issues.push(solveResult.message);
+    issues.push(formatSympyIssue(solveResult.message, residualSource));
   }
 
   return {
@@ -86,6 +115,39 @@ export async function reviewEquilibriumWithSympy({
     issues,
     checks,
   };
+}
+
+function formatSympyIssue(
+  message: string,
+  residualSource: "candidate_foc" | "model_profit_foc"
+) {
+  if (residualSource !== "model_profit_foc") return message;
+  return `基于模型利润函数生成 FOC 的复核失败：${message}`;
+}
+
+async function runModelFocGenerationCheck({
+  checker,
+  model,
+  variables,
+}: {
+  checker: SympyFocGenerationChecker;
+  model: HotellingModel;
+  variables: string[];
+}) {
+  const objectives = createModelFocObjectives(model, variables);
+  try {
+    return await checker({
+      objectives,
+    });
+  } catch (error) {
+    return {
+      ok: true,
+      status: "manual_review" as const,
+      message: `SymPy 模型利润函数生成 FOC 异常，已转入人工复核：${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
 }
 
 async function runSingleSolveCheck({
@@ -190,6 +252,57 @@ function parseEquationResidual(equation: string) {
 
 function isResidualExpression(value: string) {
   return /^[A-Za-z0-9_+\-*/().,\s^]+$/.test(value);
+}
+
+function createModelFocObjectives(model: HotellingModel, variables: string[]) {
+  const profitFunctions = model.profitFunctions
+    .map((profit) => ({
+      ...profit,
+      expression: extractRightHandExpression(profit.expression),
+    }))
+    .filter((profit) => profit.expression.length > 0);
+
+  return variables.flatMap((variable) => {
+    const profit = chooseProfitFunctionForVariable(
+      profitFunctions,
+      variable
+    );
+    if (!profit) return [];
+    return {
+      expression: profit.expression,
+      variable,
+    };
+  });
+}
+
+function chooseProfitFunctionForVariable(
+  profitFunctions: Array<HotellingModel["profitFunctions"][number]>,
+  variable: string
+) {
+  if (profitFunctions.length === 1) return profitFunctions[0];
+
+  const variablePlatform = extractPlatformToken(variable);
+  if (!variablePlatform) return undefined;
+
+  return profitFunctions.find(
+    (profit) => extractPlatformToken(profit.platform) === variablePlatform
+  );
+}
+
+function extractRightHandExpression(expression: string) {
+  const normalized = normalizeExpressionForSympy(expression);
+  const parts = normalized.split("=").map((part) => part.trim()).filter(Boolean);
+  return parts.at(-1) ?? "";
+}
+
+function extractPlatformToken(value: string) {
+  const normalized = normalizeExpressionForSympy(value);
+  const explicit = normalized.match(/(?:^|_)([AB])(?:$|_)/i)?.[1];
+  if (explicit) return explicit.toUpperCase();
+  if (/平台\s*A|platform\s*A/i.test(value)) return "A";
+  if (/平台\s*B|platform\s*B/i.test(value)) return "B";
+  if (/^[AB]$/i.test(normalized)) return normalized.toUpperCase();
+  return undefined;
 }
 
 function extractMathSegments(value: string) {

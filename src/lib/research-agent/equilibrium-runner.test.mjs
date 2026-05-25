@@ -29,6 +29,64 @@ function createConfirmedProject() {
   );
 }
 
+function createExplicitProfitModel() {
+  return {
+    symbols: [
+      {
+        id: "tau-a",
+        symbol: "\\tau_A",
+        baseSymbol: "tau",
+        subscript: "A",
+        codeName: "tau_A",
+        name: "平台 A 佣金",
+        meaning: "平台 A 选择的佣金。",
+        role: "decision",
+        side: "platform",
+        assumption: "tau_A >= 0",
+        recommended: true,
+      },
+      {
+        id: "alpha-b",
+        symbol: "\\alpha_B",
+        baseSymbol: "alpha",
+        subscript: "B",
+        codeName: "alpha_B",
+        name: "买方网络效应",
+        meaning: "买方侧网络效应强度。",
+        role: "parameter",
+        side: "consumer",
+        assumption: "alpha_B > 0",
+        recommended: true,
+      },
+    ],
+    sides: {
+      consumerSideName: "买家",
+      merchantSideName: "卖家",
+    },
+    platforms: ["A"],
+    timing: [
+      {
+        id: "pricing",
+        order: 1,
+        name: "平台定价",
+        decisions: ["tau_A"],
+      },
+    ],
+    utilityFunctions: [],
+    demandDerivation: "测试模型直接给出约化利润函数。",
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression: "alpha_B*tau_A - tau_A^2",
+        notes: "平台 A 的安全显式利润函数。",
+      },
+    ],
+    assumptions: ["alpha_B > 0"],
+    modelSetupDraft: "测试用显式利润函数。",
+  };
+}
+
 test("equilibrium solving agent proposes a reviewable equilibrium patch with trace", async () => {
   const project = createConfirmedProject();
   const candidateEquilibrium = {
@@ -591,6 +649,92 @@ test(
     assert.equal(
       result.agentRun.trace.some((event) =>
         String(event.metadata?.issues ?? "").includes("SymPy")
+      ),
+      true
+    );
+  }
+);
+
+test(
+  "equilibrium solving agent repairs candidates using FOCs generated from model profits",
+  { skip: !hasLocalSympy },
+  async () => {
+    const baseProject = createConfirmedProject();
+    const project = {
+      ...baseProject,
+      hotellingModel: createExplicitProfitModel(),
+    };
+    const riskyEquilibrium = {
+      status: "solved",
+      concept: "利润函数下的错误闭式解",
+      solvingSteps: ["写出利润函数", "对佣金求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["alpha_B > 0"],
+      closedForm: "tau_A^* = alpha_B/3",
+      derivation: "候选闭式解没有满足从利润函数生成的 FOC。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    };
+    const repairedEquilibrium = {
+      ...riskyEquilibrium,
+      concept: "由利润函数复核后的闭式解",
+      closedForm: "tau_A^* = alpha_B/2",
+      derivation: "系统从利润函数生成 FOC 后，候选解满足该 FOC。",
+    };
+    let attempts = 0;
+
+    const result = await runEquilibriumSolvingAgent(
+      {
+        rawIdea: project.rawIdea,
+        project,
+      },
+      {
+        id: "equilibrium-agent-generated-foc-repair-test",
+        now: 1710000000000,
+        solveEquilibrium: async () => {
+          attempts += 1;
+          const equilibrium =
+            attempts === 1 ? riskyEquilibrium : repairedEquilibrium;
+          return {
+            project: {
+              ...project,
+              equilibriumResult: equilibrium,
+              researchSession: {
+                ...project.researchSession,
+                phase: "equilibrium",
+                assetSummary: {
+                  ...project.researchSession?.assetSummary,
+                  confirmedAssumptions:
+                    project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                  utilityFunctions:
+                    project.researchSession?.assetSummary.utilityFunctions ?? [],
+                  equilibriumStatus: equilibrium.status,
+                  nextActions: ["检查符号均衡推导", "生成性质分析"],
+                  pendingDecision: {
+                    kind: "analyze_properties",
+                    prompt: "符号均衡结果已经生成。",
+                  },
+                },
+                messages: project.researchSession?.messages ?? [],
+              },
+            },
+            usedFallback: false,
+            assistantMessage: "均衡候选。",
+          };
+        },
+      }
+    );
+
+    const patch = result.project.researchSession?.assetPatches?.[0];
+    const equilibriumChange = patch?.changes.find(
+      (change) => change.path === "equilibriumResult"
+    );
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(equilibriumChange?.value, repairedEquilibrium);
+    assert.equal(
+      result.agentRun.trace.some((event) =>
+        String(event.metadata?.issues ?? "").includes("模型利润函数")
       ),
       true
     );

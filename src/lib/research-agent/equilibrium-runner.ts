@@ -329,7 +329,12 @@ async function reviewEquilibriumCandidate(
   );
 
   issues.push(
-    ...(await reviewEquilibriumWithSympy({ equilibrium })).issues
+    ...(
+      await reviewEquilibriumWithSympy({
+        model: project.hotellingModel,
+        equilibrium,
+      })
+    ).issues
   );
 
   return {
