@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildProjectMathVerificationSummary } from "./math-verification-summary.ts";
+import {
+  buildProjectMathVerificationSummary,
+  selectMathVerificationPanelChecks,
+} from "./math-verification-summary.ts";
 
 test("summarizes project math verification checks and blocking issues", () => {
   const summary = buildProjectMathVerificationSummary({
@@ -164,6 +167,55 @@ test("includes persisted async SymPy checks in the project summary", () => {
       /alpha_B - 2\*tau_A/.test(check.message)
     )
   );
+});
+
+test("selects passed SymPy execution checks for the visible math panel", () => {
+  const summary = buildProjectMathVerificationSummary({
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=2*alpha_B/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    propertyAnalyses: [],
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+      },
+      mathVerificationChecks: [
+        {
+          kind: "sympy_execution",
+          status: "passed",
+          message:
+            "SymPy 残差复算通过：闭式解代回可执行 FOC 后残差为 0。",
+        },
+        {
+          kind: "symbol_grounding",
+          status: "passed",
+          message: "普通符号来源检查通过。",
+        },
+      ],
+    },
+  });
+
+  const visible = selectMathVerificationPanelChecks(summary, {
+    compact: false,
+  });
+
+  assert.equal(visible.length, 1);
+  assert.match(visible[0].message, /SymPy 残差复算通过/);
 });
 
 function createModel() {

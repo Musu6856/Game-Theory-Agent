@@ -18,6 +18,18 @@ export type MathVerificationSummary = {
   checks: MathVerificationCheck[];
 };
 
+export function selectMathVerificationPanelChecks(
+  summary: Pick<MathVerificationSummary, "checks">,
+  { compact = false }: { compact?: boolean } = {}
+) {
+  return summary.checks
+    .filter(
+      (check) =>
+        check.status !== "passed" || check.kind === "sympy_execution"
+    )
+    .slice(0, compact ? 2 : 5);
+}
+
 export function buildProjectMathVerificationSummary(
   project: Pick<
     ResearchProject,

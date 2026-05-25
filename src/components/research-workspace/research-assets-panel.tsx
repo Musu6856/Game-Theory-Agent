@@ -49,6 +49,7 @@ import {
 } from "@/lib/research-agent/version-review-summary";
 import {
   buildProjectMathVerificationSummary,
+  selectMathVerificationPanelChecks,
   type MathVerificationSummary,
   type MathVerificationSummaryStatus,
 } from "@/lib/research-agent/math-verification-summary";
@@ -1525,9 +1526,9 @@ function MathVerificationSummaryPanel({
   compact?: boolean;
 }) {
   const visibleIssues = summary.issues.slice(0, compact ? 2 : 4);
-  const visibleChecks = summary.checks
-    .filter((check) => check.status !== "passed")
-    .slice(0, compact ? 2 : 5);
+  const visibleChecks = selectMathVerificationPanelChecks(summary, {
+    compact,
+  });
 
   return (
     <AssetSection title="数学验证">
@@ -1563,7 +1564,7 @@ function MathVerificationSummaryPanel({
             ))}
           </ul>
         ) : null}
-        {visibleIssues.length === 0 && visibleChecks.length > 0 ? (
+        {visibleChecks.length > 0 ? (
           <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
             {visibleChecks.map((check) => (
               <li
