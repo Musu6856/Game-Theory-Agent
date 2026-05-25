@@ -13,7 +13,12 @@ export type MathVerificationResult = {
 
 export type MathVerificationCheck = {
   kind: "symbol_grounding" | "calculus_recheck" | "sign_condition";
-  status: "passed" | "failed" | "condition_gap" | "unsupported";
+  status:
+    | "passed"
+    | "failed"
+    | "condition_insufficient"
+    | "unsupported"
+    | "manual_review";
   message: string;
   analysisId?: string;
   analysisIndex?: number;
@@ -150,7 +155,7 @@ function verifyPropertyCalculusConsistency({
     if (!target || !parameter) {
       checks.push({
         kind: "calculus_recheck",
-        status: "unsupported",
+        status: "manual_review",
         analysisId: analysis.id,
         analysisIndex: index,
         message: `第 ${index + 1} 条性质分析缺少可识别的目标变量或参数，暂不做偏导复算。`,
@@ -162,7 +167,7 @@ function verifyPropertyCalculusConsistency({
     if (!targetExpression) {
       checks.push({
         kind: "calculus_recheck",
-        status: "unsupported",
+        status: "manual_review",
         analysisId: analysis.id,
         analysisIndex: index,
         message: `第 ${index + 1} 条性质分析没有在均衡闭式解中找到 ${analysis.target} 的表达式，暂不做偏导复算。`,
@@ -182,7 +187,7 @@ function verifyPropertyCalculusConsistency({
     if (!expectedDerivative || !claimedDerivative) {
       checks.push({
         kind: "calculus_recheck",
-        status: "unsupported",
+        status: "manual_review",
         analysisId: analysis.id,
         analysisIndex: index,
         message: `第 ${index + 1} 条性质分析的闭式解或候选偏导超出当前轻量复算范围，暂不作为自动拦截依据。`,
@@ -234,7 +239,7 @@ function verifyPropertyCalculusConsistency({
       issues.push(message);
       checks.push({
         kind: "sign_condition",
-        status: "condition_gap",
+        status: "condition_insufficient",
         analysisId: analysis.id,
         analysisIndex: index,
         message,
@@ -260,7 +265,7 @@ function verifyPropertyCalculusConsistency({
     if (claimedSign !== "unknown") {
       checks.push({
         kind: "sign_condition",
-        status: expectedSign === "unknown" ? "unsupported" : "passed",
+        status: expectedSign === "unknown" ? "manual_review" : "passed",
         analysisId: analysis.id,
         analysisIndex: index,
         message:
@@ -302,6 +307,9 @@ function getSymbolAliases(symbol: SymbolDefinition) {
     symbol.codeName,
     symbol.baseSymbol,
     symbol.subscript ? `${symbol.baseSymbol}_${symbol.subscript}` : undefined,
+    shouldAddGenericPlatformAlias(symbol)
+      ? `${symbol.baseSymbol}_i`
+      : undefined,
     symbol.superscript ? `${symbol.baseSymbol}_${symbol.superscript}` : undefined,
     symbol.subscript && symbol.superscript
       ? `${symbol.baseSymbol}_${symbol.subscript}_${symbol.superscript}`
@@ -316,8 +324,26 @@ function getSymbolAliases(symbol: SymbolDefinition) {
     .flatMap((value) => normalizeSymbolToken(value));
 }
 
+function shouldAddGenericPlatformAlias(symbol: SymbolDefinition) {
+  if (!symbol.subscript || !/^[AB]$/.test(symbol.subscript)) return false;
+
+  return (
+    symbol.side === "platform" ||
+    symbol.role === "decision" ||
+    symbol.role === "demand" ||
+    symbol.role === "derived"
+  );
+}
+
 function findUngroundedSymbols(symbols: Set<string>, allowedSymbols: Set<string>) {
-  return [...symbols].filter((symbol) => !allowedSymbols.has(symbol));
+  const allowedMatchKeys = new Set(
+    [...allowedSymbols].flatMap((symbol) => getSymbolMatchKeys(symbol))
+  );
+
+  return [...symbols].filter((symbol) => {
+    const symbolMatchKeys = getSymbolMatchKeys(symbol);
+    return !symbolMatchKeys.some((key) => allowedMatchKeys.has(key));
+  });
 }
 
 function extractMathSymbols(values: string[]) {
@@ -351,11 +377,13 @@ function normalizeSymbolToken(token: string) {
     .replace(/\\alpha/g, "alpha")
     .replace(/\\beta/g, "beta")
     .replace(/\\delta/g, "delta")
+    .replace(/\\mu/g, "mu")
     .replace(/\\Pi/g, "Pi")
     .replace(/τ/g, "tau")
     .replace(/α/g, "alpha")
     .replace(/β/g, "beta")
     .replace(/δ/g, "delta")
+    .replace(/μ/g, "mu")
     .replace(/Π/g, "Pi")
     .replace(/[{}]/g, "")
     .replace(/\^\*/g, "")
@@ -373,6 +401,19 @@ function normalizeSymbolToken(token: string) {
   );
 }
 
+function getSymbolMatchKeys(symbol: string) {
+  return normalizeSymbolToken(symbol)
+    .map((value) =>
+      value
+        .replace(/\\([A-Za-z]+)/g, "$1")
+        .replace(/[{}]/g, "")
+        .replace(/\^\*/g, "")
+        .trim()
+        .toLowerCase()
+    )
+    .filter(Boolean);
+}
+
 function isCandidateSymbol(token: string) {
   if (IGNORED_TOKENS.has(token)) return false;
   if (IGNORED_TOKEN_PATTERNS.some((pattern) => pattern.test(token))) {
@@ -388,7 +429,7 @@ function isCandidateSymbol(token: string) {
     return true;
   }
 
-  return /^(tau|alpha|beta|delta|Pi)$/.test(token);
+  return /^(tau|alpha|beta|delta|mu|Pi)$/.test(token);
 }
 
 function looksLikeConcatenatedMathToken(token: string) {

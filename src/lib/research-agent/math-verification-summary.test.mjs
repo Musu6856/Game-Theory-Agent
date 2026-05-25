@@ -74,8 +74,52 @@ test("reports unsupported checks as review-needed instead of failed", () => {
 
   assert.equal(summary.status, "review_needed");
   assert.equal(summary.issueCount, 0);
-  assert.equal(summary.checkCounts.unsupported > 0, true);
+  assert.equal(summary.checkCounts.manual_review > 0, true);
   assert.match(summary.nextAction, /人工复核/);
+});
+
+test("reports condition-insufficient checks as failed release blockers", () => {
+  const model = createModel();
+  const modelWithoutQSign = {
+    ...model,
+    symbols: model.symbols.map((symbol) =>
+      symbol.symbol === "q" ? { ...symbol, assumption: "unrestricted" } : symbol
+    ),
+    assumptions: [],
+  };
+  const summary = buildProjectMathVerificationSummary({
+    hotellingModel: modelWithoutQSign,
+    equilibriumResult: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: [],
+      closedForm: "tau_A^*=-2*alpha_B/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    propertyAnalyses: [
+      {
+        id: "weak-condition",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "为负",
+        propositionDraft: "命题：买方网络效应增强会降低均衡佣金。",
+        proofSketch: "对 tau_A^* 求偏导。",
+        intuition: "候选缺少 q 的符号条件。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(summary.status, "failed");
+  assert.equal(summary.checkCounts.condition_insufficient > 0, true);
+  assert.match(summary.headline, /数学复核问题/);
 });
 
 function createModel() {

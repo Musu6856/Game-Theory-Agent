@@ -7,6 +7,10 @@ import type {
   ResearchProject,
 } from "../types";
 import type { ResearchGenerationResponse } from "../research-generation/types.ts";
+import {
+  appendOrReplaceProposedPatch,
+  recordProposedPatchStep,
+} from "./patch-proposals.ts";
 import { createPaperOutputPlan } from "./planner.ts";
 import {
   createResumableAgentRun,
@@ -46,6 +50,7 @@ export async function runPaperOutputAgent(
     resume: request.resume,
     fallback: {
       id: runId,
+      action: "draft_paper",
       goal: request.rawIdea.trim(),
       now,
       plan: createPaperOutputPlan(),
@@ -118,28 +123,22 @@ export async function runPaperOutputAgent(
   );
   agentRun = updateStepStatus(agentRun, "review-paper-grounding", "completed", now);
 
-  agentRun = updateStepStatus(agentRun, "propose-paper-patch", "running", now);
   const patch = createPaperDraftPatch({
     sections,
     now,
     sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
     riskNotes: review.issues,
   });
-  agentRun = appendTraceEvent(
+  const proposal = recordProposedPatchStep({
     agentRun,
-    {
-      stepId: "propose-paper-patch",
-      type: "tool_result",
-      message:
-        "Created a reviewable paper draft patch and paused for user approval.",
-      metadata: {
-        patchId: patch.id,
-        changeCount: patch.changes.length,
-      },
-    },
-    now
-  );
-  agentRun = updateStepStatus(agentRun, "propose-paper-patch", "completed", now);
+    project: request.project,
+    patch,
+    stepId: "propose-paper-patch",
+    now,
+    message:
+      "Created a reviewable paper draft patch and paused for user approval.",
+  });
+  agentRun = proposal.agentRun;
   agentRun = {
     ...agentRun,
     status: "paused",
@@ -151,7 +150,7 @@ export async function runPaperOutputAgent(
 
   const project = attachPaperPatchForReview({
     originalProject: request.project,
-    patch,
+    patch: proposal.patch,
     agentRun,
     now,
     reviewIssues: review.issues,
@@ -382,7 +381,7 @@ function attachPaperPatchForReview({
         phase: "paper",
         messages,
         agentRun,
-        assetPatches: [...previousPatches, patch],
+        assetPatches: appendOrReplaceProposedPatch(previousPatches, patch),
         assetSummary: {
           ...session.assetSummary,
           pendingDecision: {

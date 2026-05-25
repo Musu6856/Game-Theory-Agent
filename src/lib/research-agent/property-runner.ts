@@ -12,6 +12,10 @@ import type {
   ResearchGenerationRequest,
   ResearchGenerationResponse,
 } from "../research-generation/types.ts";
+import {
+  appendOrReplaceProposedPatch,
+  recordProposedPatchStep,
+} from "./patch-proposals.ts";
 import { createPropertyAnalysisPlan } from "./planner.ts";
 import {
   createResumableAgentRun,
@@ -55,6 +59,7 @@ export async function runPropertyAnalysisAgent(
     resume: request.resume,
     fallback: {
       id: runId,
+      action: "analyze_properties",
       goal: request.rawIdea.trim(),
       now,
       plan: createPropertyAnalysisPlan(),
@@ -243,40 +248,22 @@ export async function runPropertyAnalysisAgent(
   );
   agentRun = updateStepStatus(agentRun, "review-properties", "completed", now);
 
-  agentRun = updateStepStatus(
-    agentRun,
-    "propose-properties-patch",
-    "running",
-    now
-  );
   const patch = createPropertyAnalysisCandidatePatch({
     analyses: candidateAnalyses,
     now,
-    sourceMessageId:
-      analysisResult.project.researchSession?.messages.at(-1)?.id ??
-      request.project.researchSession?.messages.at(-1)?.id,
+    sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
     riskNotes: review.issues,
   });
-  agentRun = appendTraceEvent(
+  const proposal = recordProposedPatchStep({
     agentRun,
-    {
-      stepId: "propose-properties-patch",
-      type: "tool_result",
-      message:
-        "Created a reviewable property analysis patch and paused for user approval.",
-      metadata: {
-        patchId: patch.id,
-        changeCount: patch.changes.length,
-      },
-    },
-    now
-  );
-  agentRun = updateStepStatus(
-    agentRun,
-    "propose-properties-patch",
-    "completed",
-    now
-  );
+    project: request.project,
+    patch,
+    stepId: "propose-properties-patch",
+    now,
+    message:
+      "Created a reviewable property analysis patch and paused for user approval.",
+  });
+  agentRun = proposal.agentRun;
   agentRun = {
     ...agentRun,
     status: "paused",
@@ -289,7 +276,7 @@ export async function runPropertyAnalysisAgent(
   const project = attachPropertyPatchForReview({
     originalProject: request.project,
     analysisResult,
-    patch,
+    patch: proposal.patch,
     agentRun,
     now,
     reviewIssues: review.issues,
@@ -419,8 +406,8 @@ function attachPropertyPatchForReview({
   reviewIssues: string[];
 }) {
   const session =
-    analysisResult.project.researchSession ??
     originalProject.researchSession ??
+    analysisResult.project.researchSession ??
     createInitialResearchSession(originalProject.rawIdea);
   const previousPatches = originalProject.researchSession?.assetPatches ?? [];
   const messages = [
@@ -428,7 +415,7 @@ function attachPropertyPatchForReview({
     {
       id: `msg-properties-agent-review-${now}`,
       role: "assistant" as const,
-      content: createReviewMessage(analysisResult.assistantMessage, reviewIssues),
+      content: createReviewMessage(reviewIssues),
       createdAt: 0,
     },
   ];
@@ -442,7 +429,7 @@ function attachPropertyPatchForReview({
         phase: "analysis",
         messages,
         agentRun,
-        assetPatches: [...previousPatches, patch],
+        assetPatches: appendOrReplaceProposedPatch(previousPatches, patch),
         assetFreshness: {
           ...(session.assetFreshness ?? createFreshResearchAssetFreshness()),
           properties: originalProject.propertyAnalyses?.length ? "stale" : "fresh",
@@ -466,17 +453,14 @@ function attachPropertyPatchForReview({
   );
 }
 
-function createReviewMessage(
-  assistantMessage: string | undefined,
-  reviewIssues: string[]
-) {
+function createReviewMessage(reviewIssues: string[]) {
   const reviewLine =
     reviewIssues.length > 0
       ? `自检提示：${reviewIssues.join("；")}。`
       : "自检结果：暂未发现阻断论文整理的明显风险。";
 
   return [
-    assistantMessage?.trim() || "我已生成一组性质分析候选。",
+    "我已生成一组性质分析候选，并放到右侧作为待审核修改建议。",
     "",
     `${reviewLine}我没有直接把它们写入右侧性质分析资产，而是放到右侧作为待审核修改建议。`,
   ].join("\n");

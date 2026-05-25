@@ -99,6 +99,44 @@ test("generateResearchProjectApi routes paper drafting through the agent endpoin
   assert.equal(JSON.parse(requests[0].init.body).action, "draft_paper");
 });
 
+test("generateResearchProjectApi routes paper section revision through the agent endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init });
+    return Response.json({
+      project: {
+        id: "11111111-1111-4111-8111-111111111111",
+        rawIdea: "test idea",
+      },
+    });
+  };
+
+  try {
+    await generateResearchProjectApi({
+      action: "revise_paper_section",
+      rawIdea: "test idea",
+      project: {
+        id: "11111111-1111-4111-8111-111111111111",
+        rawIdea: "test idea",
+      },
+      sectionId: "paper-model",
+      instruction: "tighten model setup",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const body = JSON.parse(requests[0].init.body);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/research/agent");
+  assert.equal(body.action, "revise_paper_section");
+  assert.equal(body.sectionId, "paper-model");
+  assert.equal(body.instruction, "tighten model setup");
+});
+
 test("generateResearchProjectApi forwards agent resume metadata", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];

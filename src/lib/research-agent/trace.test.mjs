@@ -104,3 +104,61 @@ test("safe continuation trace records planned steps, executed steps, and stop re
     }
   );
 });
+
+test("agent run history keeps action and review patch checkpoint metadata", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "测试 AgentRun 可恢复状态",
+    now: 1710000000000,
+  });
+  const run = {
+    ...createAgentRun({
+      id: "agent-paper-resume-state",
+      action: "draft_paper",
+      goal: "测试论文输出",
+      now: 1710000000100,
+      plan: [
+        {
+          id: "propose-paper-patch",
+          kind: "approval",
+          toolName: "asset.proposePatch",
+          title: "提出论文补丁",
+          status: "completed",
+        },
+      ],
+    }),
+    status: "paused",
+    requiresApproval: true,
+    pauseReason: "等待审核论文补丁",
+    checkpoints: [
+      {
+        id: "checkpoint-1",
+        runId: "agent-paper-resume-state",
+        stepId: "propose-paper-patch",
+        title: "提出论文补丁",
+        status: "completed",
+        toolName: "asset.proposePatch",
+        createdAt: 1710000000200,
+        metadata: {
+          patchId: "patch-paper-agent-1710000000200",
+          stopReason: "approval_required",
+        },
+      },
+    ],
+  };
+
+  const traced = appendAgentRunToProject(project, run);
+  const persistedRun = traced.researchSession?.agentRunHistory?.at(-1);
+
+  assert.equal(persistedRun?.action, "draft_paper");
+  assert.equal(persistedRun?.requiresApproval, true);
+  assert.equal(persistedRun?.pauseReason, "等待审核论文补丁");
+  assert.equal(
+    persistedRun?.checkpoints?.at(-1)?.metadata?.patchId,
+    "patch-paper-agent-1710000000200"
+  );
+  assert.equal(
+    persistedRun?.checkpoints?.at(-1)?.metadata?.stopReason,
+    "approval_required"
+  );
+});

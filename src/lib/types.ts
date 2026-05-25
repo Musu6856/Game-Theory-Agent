@@ -288,7 +288,8 @@ export interface ResearchSessionDecision {
     | "answer_model_question"
     | "solve_equilibrium"
     | "analyze_properties"
-    | "draft_paper";
+    | "draft_paper"
+    | "revise_paper_section";
   prompt: string;
 }
 
@@ -328,9 +329,20 @@ export type AgentRunStatus =
   | "completed"
   | "failed";
 
+export type AgentRunAction =
+  | "discover_directions"
+  | "build_model"
+  | "solve_equilibrium"
+  | "analyze_properties"
+  | "draft_paper"
+  | "revise_paper_section"
+  | "safe_continue"
+  | "confirm_model";
+
 export interface AgentRun {
   id: string;
   projectId?: string;
+  action?: AgentRunAction;
   goal: string;
   status: AgentRunStatus;
   plan: AgentStep[];

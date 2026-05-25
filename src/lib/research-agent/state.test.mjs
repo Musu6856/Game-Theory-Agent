@@ -99,3 +99,37 @@ test("completing a run checkpoints any unfinished current step", () => {
   assert.equal(completed.checkpoints?.at(-1)?.status, "completed");
   assert.equal(completed.checkpoints?.at(-1)?.createdAt, 1710000000200);
 });
+
+test("step status updates can persist patch checkpoint metadata", () => {
+  const run = createAgentRun({
+    id: "agent-patch-checkpoint",
+    goal: "记录补丁检查点",
+    now: 1710000000000,
+    plan: [
+      {
+        id: "propose-paper-patch",
+        kind: "approval",
+        toolName: "asset.proposePatch",
+        title: "提出论文补丁",
+        status: "running",
+      },
+    ],
+  });
+
+  const completed = updateStepStatus(
+    run,
+    "propose-paper-patch",
+    "completed",
+    1710000000100,
+    {
+      patchId: "patch-paper-agent-1",
+      stopReason: "approval_required",
+    }
+  );
+
+  assert.deepEqual(completed.checkpoints?.at(-1)?.metadata, {
+    previousStatus: "running",
+    patchId: "patch-paper-agent-1",
+    stopReason: "approval_required",
+  });
+});

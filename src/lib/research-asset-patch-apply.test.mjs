@@ -159,6 +159,200 @@ test("applies a paper patch to the right-side draft sections", () => {
   );
 });
 
+test("applies a paper patch to only the targeted section", () => {
+  const project = {
+    ...createSolvedProject(),
+    sections: [
+      {
+        id: "paper-introduction",
+        title: "引言",
+        content: "Original introduction.",
+        status: "generated",
+      },
+      {
+        id: "paper-model",
+        title: "模型设定",
+        content: "Original model section.",
+        status: "generated",
+      },
+      {
+        id: "paper-discussion",
+        title: "讨论",
+        content: "Original discussion.",
+        status: "generated",
+      },
+    ],
+  };
+  const patch = {
+    id: "patch-paper-section-model",
+    kind: "paper",
+    summary: "改写模型设定章节",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections[paper-model]",
+        value: {
+          id: "paper-model",
+          title: "模型设定",
+          content: "Revised model section.",
+          status: "generated",
+        },
+      },
+    ],
+  };
+  const projectWithPatch = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
+      phase: "paper",
+      assetSummary: {
+        ...project.researchSession.assetSummary,
+        pendingDecision: {
+          kind: "draft_paper",
+          prompt: "请先审阅本章改写建议。",
+        },
+      },
+    },
+  };
+
+  const nextProject = applyResearchAssetPatchToProject(projectWithPatch, patch, {
+    now: 1710000000002,
+  });
+
+  assert.equal(nextProject.sections.length, 3);
+  assert.equal(nextProject.sections[0].content, "Original introduction.");
+  assert.equal(nextProject.sections[1].id, "paper-model");
+  assert.equal(nextProject.sections[1].content, "Revised model section.");
+  assert.equal(nextProject.sections[2].content, "Original discussion.");
+  assert.equal(
+    nextProject.researchSession?.assetPatches?.find(
+      (item) => item.id === "patch-paper-section-model"
+    )?.status,
+    "applied"
+  );
+  assert.equal(nextProject.researchSession?.assetSummary.pendingDecision, undefined);
+});
+
+test("removes only the targeted paper section", () => {
+  const project = {
+    ...createSolvedProject(),
+    sections: [
+      {
+        id: "paper-introduction",
+        title: "引言",
+        content: "Original introduction.",
+        status: "generated",
+      },
+      {
+        id: "paper-model",
+        title: "模型设定",
+        content: "Original model section.",
+        status: "generated",
+      },
+      {
+        id: "paper-discussion",
+        title: "讨论",
+        content: "Original discussion.",
+        status: "generated",
+      },
+    ],
+  };
+  const patch = {
+    id: "patch-paper-section-remove-model",
+    kind: "paper",
+    summary: "移除模型设定章节",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "remove",
+        path: "paper.sections[paper-model]",
+      },
+    ],
+  };
+  const projectWithPatch = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
+      phase: "paper",
+    },
+  };
+
+  const nextProject = applyResearchAssetPatchToProject(projectWithPatch, patch, {
+    now: 1710000000002,
+  });
+
+  assert.deepEqual(
+    nextProject.sections.map((section) => section.id),
+    ["paper-introduction", "paper-discussion"]
+  );
+});
+
+test("rejecting a targeted paper section patch leaves sections unchanged", () => {
+  const project = {
+    ...createSolvedProject(),
+    sections: [
+      {
+        id: "paper-introduction",
+        title: "引言",
+        content: "Original introduction.",
+        status: "generated",
+      },
+      {
+        id: "paper-model",
+        title: "模型设定",
+        content: "Original model section.",
+        status: "generated",
+      },
+    ],
+  };
+  const patch = {
+    id: "patch-paper-section-reject-model",
+    kind: "paper",
+    summary: "改写模型设定章节",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections[paper-model]",
+        value: {
+          id: "paper-model",
+          title: "模型设定",
+          content: "Rejected model section.",
+          status: "generated",
+        },
+      },
+    ],
+  };
+  const projectWithPatch = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
+      phase: "paper",
+    },
+  };
+
+  const nextProject = markProjectPatchStatus(
+    projectWithPatch,
+    patch.id,
+    "rejected",
+    1710000000002
+  );
+
+  assert.equal(nextProject.sections[0].content, "Original introduction.");
+  assert.equal(nextProject.sections[1].content, "Original model section.");
+  assert.equal(
+    nextProject.researchSession?.assetPatches?.at(-1)?.status,
+    "rejected"
+  );
+});
+
 test("quick review application only applies low-risk paper patches", () => {
   const project = createSolvedProject();
   const modelPatch = {

@@ -54,6 +54,7 @@ export function PaneSplitter({
     <div className="research-pane-splitter">
       <button
         type="button"
+        role="separator"
         aria-label={label}
         aria-orientation="vertical"
         className="research-pane-splitter-button"

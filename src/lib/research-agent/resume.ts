@@ -1,6 +1,7 @@
 import type {
   AgentCheckpoint,
   AgentRun,
+  AgentRunAction,
   AgentStep,
   ResearchProject,
 } from "../types";
@@ -20,6 +21,7 @@ export type CreateResumableRunInput = {
   resume?: AgentResumeRequest;
   fallback: {
     id: string;
+    action?: AgentRunAction;
     goal: string;
     now: number;
     plan: AgentStep[];

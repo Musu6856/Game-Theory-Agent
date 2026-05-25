@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { recommendNextAgentStep } from "./controller.ts";
 
-test("recommendNextAgentStep prioritizes high-impact version review before drafting", () => {
+test("recommendNextAgentStep routes high-impact version review to the actionable asset", () => {
   const recommendation = recommendNextAgentStep({
     id: "project-1",
     createdAt: 1710000000000,
@@ -49,9 +49,94 @@ test("recommendNextAgentStep prioritizes high-impact version review before draft
   });
 
   assert.equal(recommendation.status, "blocked");
-  assert.equal(recommendation.targetTab, "history");
+  assert.equal(recommendation.targetTab, "equilibrium");
   assert.equal(recommendation.blocker?.kind, "version_review");
   assert.match(recommendation.reason, /版本复盘/);
+});
+
+test("recommendNextAgentStep follows the latest version review action when older high-impact events remain", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "platform commission",
+    refinedIdea: "platform commission and subsidy",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: createEquilibrium(),
+    propertyAnalyses: [createProperty("p1"), createProperty("p2"), createProperty("p3")],
+    researchSession: {
+      phase: "paper",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+      },
+      assetVersionHistory: [
+        {
+          id: "version-model",
+          assetKind: "model",
+          action: "applied_patch",
+          patchId: "patch-model",
+          summary: "apply model",
+          changedPaths: [],
+          changes: [],
+          changeCount: 0,
+          createdAt: 1710000000001,
+          impact: {
+            summary: "model changed",
+            affectedAssetKinds: ["equilibrium", "properties", "paper"],
+            reviewFocus: ["regenerate equilibrium"],
+            nextAction: "regenerate symbolic equilibrium",
+          },
+        },
+        {
+          id: "version-equilibrium",
+          assetKind: "equilibrium",
+          action: "applied_patch",
+          patchId: "patch-equilibrium",
+          summary: "apply equilibrium",
+          changedPaths: [],
+          changes: [],
+          changeCount: 0,
+          createdAt: 1710000000002,
+          impact: {
+            summary: "equilibrium changed",
+            affectedAssetKinds: ["properties", "paper"],
+            reviewFocus: ["regenerate properties"],
+            nextAction: "regenerate property analysis",
+          },
+        },
+        {
+          id: "version-properties",
+          assetKind: "properties",
+          action: "applied_patch",
+          patchId: "patch-properties",
+          summary: "apply properties",
+          changedPaths: [],
+          changes: [],
+          changeCount: 0,
+          createdAt: 1710000000003,
+          impact: {
+            summary: "properties changed",
+            affectedAssetKinds: ["paper"],
+            reviewFocus: ["review paper draft"],
+            nextAction: "review or rewrite paper draft",
+          },
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "blocked");
+  assert.equal(recommendation.targetTab, "paper");
+  assert.equal(recommendation.blocker?.kind, "version_review");
+  assert.equal(recommendation.blocker?.description, "review or rewrite paper draft");
 });
 
 test("recommendNextAgentStep prioritizes failed math verification", () => {

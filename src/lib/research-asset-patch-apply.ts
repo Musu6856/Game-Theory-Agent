@@ -438,11 +438,20 @@ function applyPaperSectionChanges(
   let nextSections = [...sections];
 
   for (const change of changes) {
-    const normalized = normalizePatchPath(change.path);
-    if (normalized !== "sections" && normalized !== "paper.sections") continue;
+    const target = parsePaperSectionTarget(change.path);
+    if (!target) continue;
 
-    if (change.kind === "remove") {
+    if (target.kind === "root" && change.kind === "remove") {
       nextSections = [];
+      continue;
+    }
+
+    if (target.kind === "section" && change.kind === "remove") {
+      nextSections = applySinglePaperSectionChange(
+        nextSections,
+        change.kind,
+        target.selector
+      );
       continue;
     }
 
@@ -453,6 +462,16 @@ function applyPaperSectionChanges(
 
     if (incoming.length === 0) continue;
 
+    if (target.kind === "section") {
+      nextSections = applySinglePaperSectionChange(
+        nextSections,
+        change.kind,
+        target.selector,
+        incoming[0]
+      );
+      continue;
+    }
+
     nextSections =
       change.kind === "append"
         ? mergePaperSections(nextSections, incoming)
@@ -460,6 +479,68 @@ function applyPaperSectionChanges(
   }
 
   return nextSections;
+}
+
+type PaperSectionPatchTarget =
+  | { kind: "root" }
+  | {
+      kind: "section";
+      selector: string | number;
+    };
+
+function parsePaperSectionTarget(path: string): PaperSectionPatchTarget | null {
+  const normalized = normalizePatchPath(path);
+  if (normalized === "sections" || normalized === "paper.sections") {
+    return { kind: "root" };
+  }
+
+  const bracketMatch = normalized.match(
+    /^(?:paper\.)?sections\[['"]?([^\]"']+)['"]?\]$/
+  );
+  if (bracketMatch) {
+    return toPaperSectionTarget(bracketMatch[1]);
+  }
+
+  const dotMatch = normalized.match(
+    /^(?:paper\.)?sections\.([A-Za-z0-9_-]+)$/
+  );
+  if (dotMatch) {
+    return toPaperSectionTarget(dotMatch[1]);
+  }
+
+  return null;
+}
+
+function toPaperSectionTarget(rawSelector: string): PaperSectionPatchTarget {
+  return {
+    kind: "section",
+    selector: /^\d+$/.test(rawSelector) ? Number(rawSelector) : rawSelector,
+  };
+}
+
+function applySinglePaperSectionChange(
+  sections: PaperSection[],
+  kind: ResearchAssetChange["kind"],
+  selector: string | number,
+  incoming?: PaperSection
+) {
+  const index = resolvePaperSectionIndex(sections, selector);
+
+  if (kind === "remove") {
+    return index >= 0
+      ? sections.filter((_, sectionIndex) => sectionIndex !== index)
+      : sections;
+  }
+
+  if (!incoming) return sections;
+
+  if (index < 0) {
+    return [...sections, incoming];
+  }
+
+  const next = [...sections];
+  next[index] = incoming;
+  return next;
 }
 
 function applyPropertyRootChange(
@@ -736,6 +817,17 @@ function resolvePropertyIndex(
   }
 
   return analyses.findIndex((analysis) => analysis.id === selector);
+}
+
+function resolvePaperSectionIndex(
+  sections: PaperSection[],
+  selector: string | number
+) {
+  if (typeof selector === "number") {
+    return selector >= 0 && selector < sections.length ? selector : -1;
+  }
+
+  return sections.findIndex((section) => section.id === selector);
 }
 
 function mergePropertyAnalyses(

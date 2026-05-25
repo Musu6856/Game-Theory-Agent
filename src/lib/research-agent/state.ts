@@ -1,6 +1,7 @@
 import type {
   AgentCheckpoint,
   AgentRun,
+  AgentRunAction,
   AgentStep,
   AgentTraceEvent,
   EvidencePack,
@@ -20,17 +21,20 @@ export type {
 
 export function createAgentRun({
   id,
+  action,
   goal,
   now = Date.now(),
   plan,
 }: {
   id: string;
+  action?: AgentRunAction;
   goal: string;
   now?: number;
   plan: AgentStep[];
 }): AgentRun {
   return {
     id,
+    action,
     goal,
     status: "running",
     plan,
@@ -64,14 +68,15 @@ export function updateStepStatus(
   run: AgentRun,
   stepId: string,
   status: AgentStep["status"],
-  now = Date.now()
+  now = Date.now(),
+  metadata?: Record<string, unknown>
 ): AgentRun {
   const step = run.plan.find((item) => item.id === stepId);
   const nextCurrentStepId = status === "running" ? stepId : (
     run.currentStepId === stepId ? undefined : run.currentStepId
   );
   const checkpoint = step
-    ? createCheckpoint(run, step, status, now)
+    ? createCheckpoint(run, step, status, now, metadata)
     : undefined;
 
   return {

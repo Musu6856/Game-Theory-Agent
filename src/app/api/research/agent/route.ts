@@ -6,6 +6,7 @@ import { normalizeModelSourceSettings } from "@/lib/model-source";
 import { runEquilibriumSolvingAgent } from "@/lib/research-agent/equilibrium-runner";
 import { runModelGenerationAgent } from "@/lib/research-agent/model-runner";
 import { runPaperOutputAgent } from "@/lib/research-agent/paper-runner";
+import { runPaperSectionRevisionAgent } from "@/lib/research-agent/paper-section-runner";
 import { runPropertyAnalysisAgent } from "@/lib/research-agent/property-runner";
 import { runDirectionDiscoveryAgent } from "@/lib/research-agent/runner";
 import { generateResearchProject } from "@/lib/ai-research-generation";
@@ -13,6 +14,7 @@ import type { EquilibriumSolvingAgentRequest } from "@/lib/research-agent/equili
 import type { DirectionDiscoveryAgentRequest } from "@/lib/research-agent/runner";
 import type { ModelGenerationAgentRequest } from "@/lib/research-agent/model-runner";
 import type { PaperOutputAgentRequest } from "@/lib/research-agent/paper-runner";
+import type { PaperSectionRevisionAgentRequest } from "@/lib/research-agent/paper-section-runner";
 import type { PropertyAnalysisAgentRequest } from "@/lib/research-agent/property-runner";
 import type { ModelSourceSettings } from "@/lib/types";
 
@@ -36,6 +38,10 @@ type AgentRouteRequest =
     })
   | (PaperOutputAgentRequest & {
       action: "draft_paper";
+      runtimeModelSource?: ModelSourceSettings;
+    })
+  | (PaperSectionRevisionAgentRequest & {
+      action: "revise_paper_section";
       runtimeModelSource?: ModelSourceSettings;
     });
 
@@ -108,7 +114,8 @@ function validateRequest(body: AgentRouteRequest) {
     body.action !== "build_model" &&
     body.action !== "solve_equilibrium" &&
     body.action !== "analyze_properties" &&
-    body.action !== "draft_paper"
+    body.action !== "draft_paper" &&
+    body.action !== "revise_paper_section"
   ) {
     return "Invalid action";
   }
@@ -141,11 +148,19 @@ function validateRequest(body: AgentRouteRequest) {
   if (
     body.action === "solve_equilibrium" ||
     body.action === "analyze_properties" ||
-    body.action === "draft_paper"
+    body.action === "draft_paper" ||
+    body.action === "revise_paper_section"
   ) {
     if (!body.project || typeof body.project !== "object") {
       return "project is required";
     }
+  }
+
+  if (
+    body.action === "revise_paper_section" &&
+    (typeof body.sectionId !== "string" || body.sectionId.trim().length === 0)
+  ) {
+    return "sectionId is required";
   }
 
   return null;
@@ -203,6 +218,16 @@ function runAgentRequest(
     return runPaperOutputAgent({
       rawIdea: body.rawIdea,
       project: body.project,
+      resume: body.resume,
+    });
+  }
+
+  if (body.action === "revise_paper_section") {
+    return runPaperSectionRevisionAgent({
+      rawIdea: body.rawIdea,
+      project: body.project,
+      sectionId: body.sectionId,
+      instruction: body.instruction,
       resume: body.resume,
     });
   }

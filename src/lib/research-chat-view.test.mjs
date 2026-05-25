@@ -138,3 +138,114 @@ test("chat view removes pending assistant once confirmed assistant reply arrives
     ["msg-user-confirmed", "msg-assistant-confirmed"]
   );
 });
+
+test("chat view hides stale provider drafts once an agent review message exists", () => {
+  const duplicatedDraft =
+    "模型设定与符号均衡推导 ".repeat(20);
+  const messages = [
+    {
+      id: "msg-assistant-model-1",
+      role: "assistant",
+      content: "FULL_MODEL_DRAFT",
+      createdAt: 1710000000000,
+    },
+    {
+      id: "msg-model-agent-review-1",
+      role: "assistant",
+      content: "我已生成模型候选，已放到右侧待审核。",
+      createdAt: 1710000000001,
+    },
+    {
+      id: "msg-start-equilibrium-provider-1",
+      role: "user",
+      content: "开始符号均衡求解。",
+      createdAt: 1710000000002,
+    },
+    {
+      id: "msg-equilibrium-provider-1",
+      role: "assistant",
+      content: "FULL_EQUILIBRIUM_DRAFT",
+      createdAt: 1710000000003,
+    },
+    {
+      id: "msg-equilibrium-agent-review-1",
+      role: "assistant",
+      content: `${duplicatedDraft}\n\n自检结果：我没有直接把它推进到性质分析，而是放到右侧作为待审核修改建议。`,
+      createdAt: 1710000000004,
+    },
+    {
+      id: "msg-start-analysis-provider-1",
+      role: "user",
+      content: "生成性质分析。",
+      createdAt: 1710000000005,
+    },
+    {
+      id: "msg-analysis-provider-1",
+      role: "assistant",
+      content: "FULL_PROPERTY_DRAFT",
+      createdAt: 1710000000006,
+    },
+    {
+      id: "msg-properties-agent-review-1",
+      role: "assistant",
+      content: "我已生成性质分析候选，已放到右侧待审核。",
+      createdAt: 1710000000007,
+    },
+  ];
+
+  assert.deepEqual(
+    createResearchChatViewMessages(messages, null).map((message) => message.id),
+    [
+      "msg-model-agent-review-1",
+      "msg-start-equilibrium-provider-1",
+      "msg-equilibrium-agent-review-1",
+      "msg-start-analysis-provider-1",
+      "msg-properties-agent-review-1",
+    ]
+  );
+  assert.equal(
+    createResearchChatViewMessages(messages, null).some((message) =>
+      message.content.includes(duplicatedDraft)
+    ),
+    false
+  );
+  assert.equal(
+    createResearchChatViewMessages(messages, null).find(
+      (message) => message.id === "msg-equilibrium-agent-review-1"
+    )?.content,
+    "自检结果：我没有直接把它推进到性质分析，而是放到右侧作为待审核修改建议。"
+  );
+});
+
+test("chat view trims stale structural draft headings from old agent review messages", () => {
+  const messages = [
+    {
+      id: "msg-equilibrium-agent-review-heading",
+      role: "assistant",
+      content:
+        "## 模型设定与符号均衡推导\n\n1. 模型结构\n\n考虑两个AI平台A和B位于Hotelling线段[0,1]两端。\n\n自检结果：我没有直接把它推进到性质分析，而是放到右侧作为待审核修改建议。",
+      createdAt: 1710000000000,
+    },
+    {
+      id: "msg-properties-agent-review-heading",
+      role: "assistant",
+      content:
+        "## 对称均衡下平台佣金与补贴的比较静态分析\n\n基于 Hotelling 双边市场模型，我们推导比较静态。\n\n自检结果：我没有直接把它们写入右侧性质分析资产，而是放到右侧作为待审核修改建议。",
+      createdAt: 1710000000001,
+    },
+  ];
+
+  const viewMessages = createResearchChatViewMessages(messages, null);
+
+  assert.deepEqual(
+    viewMessages.map((message) => message.content),
+    [
+      "自检结果：我没有直接把它推进到性质分析，而是放到右侧作为待审核修改建议。",
+      "自检结果：我没有直接把它们写入右侧性质分析资产，而是放到右侧作为待审核修改建议。",
+    ]
+  );
+  assert.equal(
+    viewMessages.some((message) => message.content.startsWith("## ")),
+    false
+  );
+});

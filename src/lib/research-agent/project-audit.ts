@@ -270,8 +270,8 @@ function appendMathVerificationSummary(lines: string[], project: ResearchProject
     `- 建议下一步：${summary.nextAction}`,
     `- 通过：${summary.checkCounts.passed} 项`,
     `- 需修正：${summary.checkCounts.failed} 项`,
-    `- 条件不足：${summary.checkCounts.condition_gap} 项`,
-    `- 人工复核：${summary.checkCounts.unsupported} 项`
+    `- 条件不足：${summary.checkCounts.condition_insufficient} 项`,
+    `- 人工复核：${summary.checkCounts.unsupported + summary.checkCounts.manual_review} 项`
   );
 
   if (summary.issues.length > 0) {
@@ -511,15 +511,18 @@ function formatMathCheckKind(kind: "symbol_grounding" | "calculus_recheck" | "si
   }
 }
 
-function formatMathCheckStatus(status: "passed" | "failed" | "condition_gap" | "unsupported") {
+function formatMathCheckStatus(
+  status: "passed" | "failed" | "condition_insufficient" | "unsupported" | "manual_review"
+) {
   switch (status) {
     case "passed":
       return "已通过";
     case "failed":
       return "需修正";
-    case "condition_gap":
+    case "condition_insufficient":
       return "条件不足";
     case "unsupported":
+    case "manual_review":
       return "人工复核";
   }
 }

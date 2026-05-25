@@ -12,6 +12,10 @@ import type {
   ResearchGenerationRequest,
   ResearchGenerationResponse,
 } from "../research-generation/types.ts";
+import {
+  appendOrReplaceProposedPatch,
+  recordProposedPatchStep,
+} from "./patch-proposals.ts";
 import { createEquilibriumSolvingPlan } from "./planner.ts";
 import {
   createResumableAgentRun,
@@ -55,6 +59,7 @@ export async function runEquilibriumSolvingAgent(
     resume: request.resume,
     fallback: {
       id: runId,
+      action: "solve_equilibrium",
       goal: request.rawIdea.trim(),
       now,
       plan: createEquilibriumSolvingPlan(),
@@ -246,40 +251,22 @@ export async function runEquilibriumSolvingAgent(
   );
   agentRun = updateStepStatus(agentRun, "review-equilibrium", "completed", now);
 
-  agentRun = updateStepStatus(
-    agentRun,
-    "propose-equilibrium-patch",
-    "running",
-    now
-  );
   const patch = createEquilibriumCandidatePatch({
     equilibrium: candidateEquilibrium,
     now,
-    sourceMessageId:
-      solveResult.project.researchSession?.messages.at(-1)?.id ??
-      request.project.researchSession?.messages.at(-1)?.id,
+    sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
     riskNotes: review.issues,
   });
-  agentRun = appendTraceEvent(
+  const proposal = recordProposedPatchStep({
     agentRun,
-    {
-      stepId: "propose-equilibrium-patch",
-      type: "tool_result",
-      message:
-        "Created a reviewable equilibrium patch and paused for user approval.",
-      metadata: {
-        patchId: patch.id,
-        changeCount: patch.changes.length,
-      },
-    },
-    now
-  );
-  agentRun = updateStepStatus(
-    agentRun,
-    "propose-equilibrium-patch",
-    "completed",
-    now
-  );
+    project: request.project,
+    patch,
+    stepId: "propose-equilibrium-patch",
+    now,
+    message:
+      "Created a reviewable equilibrium patch and paused for user approval.",
+  });
+  agentRun = proposal.agentRun;
   agentRun = {
     ...agentRun,
     status: "paused",
@@ -292,7 +279,7 @@ export async function runEquilibriumSolvingAgent(
   const project = attachEquilibriumPatchForReview({
     originalProject: request.project,
     solveResult,
-    patch,
+    patch: proposal.patch,
     agentRun,
     now,
     reviewIssues: review.issues,
@@ -404,8 +391,8 @@ function attachEquilibriumPatchForReview({
   reviewIssues: string[];
 }) {
   const session =
-    solveResult.project.researchSession ??
     originalProject.researchSession ??
+    solveResult.project.researchSession ??
     createInitialResearchSession(originalProject.rawIdea);
   const previousPatches = originalProject.researchSession?.assetPatches ?? [];
   const messages = [
@@ -413,7 +400,7 @@ function attachEquilibriumPatchForReview({
     {
       id: `msg-equilibrium-agent-review-${now}`,
       role: "assistant" as const,
-      content: createReviewMessage(solveResult.assistantMessage, reviewIssues),
+      content: createReviewMessage(reviewIssues),
       createdAt: 0,
     },
   ];
@@ -428,7 +415,7 @@ function attachEquilibriumPatchForReview({
         phase: "equilibrium",
         messages,
         agentRun,
-        assetPatches: [...previousPatches, patch],
+        assetPatches: appendOrReplaceProposedPatch(previousPatches, patch),
         assetSummary: {
           ...session.assetSummary,
           equilibriumStatus:
@@ -450,17 +437,14 @@ function attachEquilibriumPatchForReview({
   );
 }
 
-function createReviewMessage(
-  assistantMessage: string | undefined,
-  reviewIssues: string[]
-) {
+function createReviewMessage(reviewIssues: string[]) {
   const reviewLine =
     reviewIssues.length > 0
       ? `自检提示：${reviewIssues.join("；")}。`
       : "自检结果：暂未发现阻断性质分析的明显风险。";
 
   return [
-    assistantMessage?.trim() || "我已生成一版均衡候选。",
+    "我已生成一版均衡候选，并放到右侧作为待审核修改建议。",
     "",
     `${reviewLine}我没有直接把它推进到性质分析，而是放到右侧作为待审核修改建议。`,
   ].join("\n");

@@ -99,7 +99,10 @@ export function adoptResearchDirection(
   }
 
   const model = createFallbackModelForDirection(direction);
-  const equilibriumResult = createSymbolicEquilibriumScaffold(direction);
+  const equilibriumResult = createModelAwareEquilibriumScaffoldResult(
+    model,
+    direction
+  );
   const messages: ResearchSessionMessage[] = [
     ...session.messages,
     {
@@ -286,7 +289,8 @@ function applySymbolicEquilibriumResult(
   messages: ResearchSessionMessage[]
 ): ResearchProject {
   const direction = getActiveDirection(session);
-  const equilibriumResult = createEquilibriumFallbackForDirection(direction);
+  const equilibriumResult = createEquilibriumFallbackForProject(project, direction);
+  const hasSolvedEquilibrium = equilibriumResult.status === "solved";
 
   return {
     ...project,
@@ -298,16 +302,24 @@ function applySymbolicEquilibriumResult(
       assetSummary: {
         ...session.assetSummary,
         equilibriumStatus: equilibriumResult.status,
-        pendingDecision: {
+        pendingDecision: hasSolvedEquilibrium ? {
           kind: "analyze_properties",
           prompt:
             "符号均衡资产已经生成。下一步可以对佣金、补贴、网络效应和差异化成本做符号性质分析。",
+        } : {
+          kind: "solve_equilibrium",
+          prompt:
+            "当前只生成了与模型绑定的符号条件草稿，尚未得到可用的闭式均衡解。请修正模型或重新生成符号均衡。",
         },
-        nextActions: [
+        nextActions: hasSolvedEquilibrium ? [
           "检查符号均衡推导",
           "复制并运行 SymPy 求解代码",
           "基于解析对象生成性质分析",
           "生成性质分析",
+        ] : [
+          "检查当前模型的策略变量",
+          "补全需求函数与利润函数",
+          "重新生成符号均衡",
         ],
       },
     },
@@ -742,6 +754,227 @@ function createEquilibriumFallbackForDirection(
   return createGenericDirectionSpecificEquilibriumFallback(direction);
 }
 
+function createEquilibriumFallbackForProject(
+  project: ResearchProject,
+  direction?: ResearchDirection
+): EquilibriumResult {
+  const model = project.hotellingModel;
+
+  if (!model) {
+    return createEquilibriumFallbackForDirection(direction);
+  }
+
+  if (isSellerMultihomingDirection(direction)) {
+    return createSellerMultihomingEquilibriumFallback();
+  }
+
+  if (isDefaultCommissionSubsidyDecisionCore(model)) {
+    return createEquilibriumFallbackForDirection(direction);
+  }
+
+  return createModelGroundedEquilibriumFallback(model, direction);
+}
+
+function createModelGroundedEquilibriumFallback(
+  model: HotellingModel,
+  direction?: ResearchDirection,
+  status: "needs_revision" | "symbolic_failure" = "symbolic_failure"
+): EquilibriumResult {
+  const decisions = collectStrategicDecisionSymbols(model);
+  const decisionText = decisions.length > 0 ? decisions.join(", ") : "current platform decisions";
+  const profitText = model.profitFunctions
+    .map((entry) => `${entry.platform}: ${entry.expression}`)
+    .join("; ");
+  const waitsForConfirmation = status === "needs_revision";
+
+  return {
+    status,
+    concept: "当前模型绑定的符号均衡草稿（待闭式求解）",
+    solvingSteps: [
+      `读取当前模型的一阶策略变量：${decisionText}。`,
+      "将当前利润函数作为求导对象，不套用默认佣金-补贴闭式解。",
+      "对每个平台自身的策略变量写出一阶条件；若需求份额或利润函数尚未闭合，则停在可审阅的符号系统。",
+      "闭式均衡、反应函数或隐式比较静态需要重新调用模型或由研究者补全后再确认。",
+    ],
+    focs: createModelGroundedFocs(model, decisions),
+    conditions: [
+      ...model.assumptions.slice(0, 4),
+      "所有需求份额必须位于 [0,1]，且二阶条件需在当前利润函数下重新检查。",
+      direction
+        ? `当前研究方向：${direction.title}。`
+        : "当前研究方向来自用户自定义模型。",
+    ],
+    closedForm: waitsForConfirmation
+      ? ""
+      : "尚未得到闭式均衡解；当前只保留与模型一致的一阶条件系统。",
+    derivation:
+      waitsForConfirmation
+        ? `等待用户确认当前模型后继续推导符号均衡。当前利润函数为：${profitText || "未提供利润函数"}。`
+        : `上游模型输出未能解析为合格 JSON，因此本地兜底只生成审阅草稿。当前利润函数为：${profitText || "未提供利润函数"}。` +
+          "这些条件只说明应如何从当前模型继续求解，不声称已经得到可用于性质分析的闭式均衡。",
+    code: createModelGroundedSympyScaffold(model, decisions),
+    warnings: waitsForConfirmation
+      ? [
+          "当前仅搭建与模型一致的符号均衡条件，不进行数值模拟。",
+          "确认模型后需要重新生成闭式均衡或可审阅的隐式系统。",
+        ]
+      : [
+          "当前模型包含不属于默认佣金-补贴核心的策略变量，不能复用本地默认闭式解。",
+          "该结果不会解锁性质分析；请先重新生成或人工确认闭式均衡。",
+        ],
+  };
+}
+
+function isDefaultCommissionSubsidyDecisionCore(model: HotellingModel) {
+  const decisions = collectStrategicDecisionSymbols(model);
+  if (decisions.length === 0) return false;
+
+  const normalized = decisions.map(normalizeDecisionToken);
+  const hasCommission = normalized.some(isCommissionDecision);
+  const hasSubsidy = normalized.some(isSubsidyDecision);
+  const onlyDefaultControls = normalized.every(
+    (decision) => isCommissionDecision(decision) || isSubsidyDecision(decision)
+  );
+
+  return hasCommission && hasSubsidy && onlyDefaultControls;
+}
+
+function collectStrategicDecisionSymbols(model: HotellingModel) {
+  const orderedStages = [...model.timing].sort((left, right) => left.order - right.order);
+  const firstStageDecisions =
+    orderedStages.find((stage) => stage.decisions.length > 0)?.decisions ?? [];
+  const source =
+    firstStageDecisions.length > 0
+      ? firstStageDecisions
+      : orderedStages.flatMap((stage) => stage.decisions);
+
+  return [...new Set(source.map(cleanDecisionSymbol).filter(Boolean))];
+}
+
+function createModelGroundedFocs(
+  model: HotellingModel,
+  decisions: string[]
+) {
+  const platforms = model.platforms.length > 0 ? model.platforms : ["A", "B"];
+  const focs = platforms.flatMap((platform) => {
+    const platformDecisions = decisions.filter((decision) =>
+      decisionTargetsPlatform(decision, platform)
+    );
+
+    return platformDecisions.map(
+      (decision) => `\\frac{\\partial \\Pi_${platform}}{\\partial ${decision}}=0`
+    );
+  });
+
+  if (focs.length > 0) return focs;
+
+  return decisions.map(
+    (decision) => `\\frac{\\partial \\Pi_i}{\\partial ${decision}}=0`
+  );
+}
+
+function createModelGroundedSympyScaffold(
+  model: HotellingModel,
+  decisions: string[]
+) {
+  const symbolNames = decisions.map(toSympyIdentifier).filter(Boolean);
+  const uniqueSymbolNames = [...new Set(symbolNames)];
+  const symbolLine =
+    uniqueSymbolNames.length > 0
+      ? `${uniqueSymbolNames.join(", ")} = sp.symbols("${uniqueSymbolNames.join(" ")}", real=True)`
+      : "# Define current model decision symbols here.";
+  const profitComments = model.profitFunctions
+    .map((entry) => `# ${entry.platform}: ${entry.expression}`)
+    .join("\n");
+  const exampleFocs = createModelGroundedSympyFocExamples(model, decisions);
+  const focLine =
+    exampleFocs.length > 0
+      ? `# focs = [${exampleFocs.join(", ")}]`
+      : "# focs = []  # Add first-order conditions after defining profit functions.";
+
+  return `# SymPy scaffold for the current model only.
+import sympy as sp
+
+${symbolLine}
+
+# Fill in demand shares from the current model before solving.
+${profitComments || "# Profit functions were not provided."}
+# Example next step:
+${focLine}
+# solution = sp.solve(focs, [${uniqueSymbolNames.join(", ")}], dict=True, simplify=True)`;
+}
+
+function createModelGroundedSympyFocExamples(
+  model: HotellingModel,
+  decisions: string[]
+) {
+  const platforms = model.platforms.length > 0 ? model.platforms : ["A", "B"];
+  const focs = platforms.flatMap((platform) => {
+    const platformDecisions = decisions.filter((decision) =>
+      decisionTargetsPlatform(decision, platform)
+    );
+
+    return platformDecisions
+      .map((decision) => toSympyIdentifier(decision))
+      .filter(Boolean)
+      .map((decision) => `sp.diff(Pi_${platform}, ${decision})`);
+  });
+
+  if (focs.length > 0) return [...new Set(focs)];
+
+  return [
+    ...new Set(
+      decisions
+        .map((decision) => toSympyIdentifier(decision))
+        .filter(Boolean)
+        .map((decision) => `sp.diff(Pi_i, ${decision})`)
+    ),
+  ];
+}
+
+function cleanDecisionSymbol(value: string) {
+  return value
+    .trim()
+    .replace(/^\$|\$$/g, "")
+    .replace(/^\\\(|\\\)$/g, "")
+    .trim();
+}
+
+function normalizeDecisionToken(value: string) {
+  return cleanDecisionSymbol(value)
+    .replace(/\\/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+function isCommissionDecision(decision: string) {
+  return /^tau(?:_[abi])?$/.test(decision);
+}
+
+function isSubsidyDecision(decision: string) {
+  return /^s(?:_[abi])?$/.test(decision);
+}
+
+function decisionTargetsPlatform(decision: string, platform: string) {
+  const normalizedDecision = normalizeDecisionToken(decision);
+  const normalizedPlatform = normalizeDecisionToken(platform);
+
+  return (
+    normalizedDecision.endsWith(`_${normalizedPlatform}`) ||
+    normalizedDecision.endsWith("_i") ||
+    !/_[a-z0-9]+$/.test(normalizedDecision)
+  );
+}
+
+function toSympyIdentifier(value: string) {
+  return normalizeDecisionToken(value)
+    .replace(/^tau(?=_|$)/, "tau")
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function createPropertyAnalysesForDirection(
   direction: ResearchDirection | undefined,
   equilibrium: EquilibriumResult
@@ -1094,6 +1327,21 @@ function createSymbolicEquilibriumScaffold(
   }
 
   return createSymbolicEquilibriumScaffoldResult();
+}
+
+export function createModelAwareEquilibriumScaffoldResult(
+  model: HotellingModel,
+  direction?: ResearchDirection
+): EquilibriumResult {
+  if (isSellerMultihomingDirection(direction)) {
+    return createSymbolicEquilibriumScaffold(direction);
+  }
+
+  if (isDefaultCommissionSubsidyDecisionCore(model)) {
+    return createSymbolicEquilibriumScaffold(direction);
+  }
+
+  return createModelGroundedEquilibriumFallback(model, direction, "needs_revision");
 }
 
 export function createSymbolicEquilibriumScaffoldResult(): EquilibriumResult {

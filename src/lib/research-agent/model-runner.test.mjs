@@ -11,6 +11,8 @@ test("model generation agent proposes a reviewable model patch with trace", asyn
     rawIdea: "研究二手交易平台相关模型",
     now: 1710000000000,
   });
+  const providerDraftMessage =
+    "FULL_MODEL_PROVIDER_DRAFT_SHOULD_STAY_OUT_OF_CHAT";
   const candidateModel = {
     symbols: [],
     sides: {
@@ -123,6 +125,12 @@ test("model generation agent proposes a reviewable model patch with trace", asyn
   assert.equal(patch?.changes.some((change) => change.path === "hotellingModel.profitFunctions"), true);
   assert.equal(patch?.changes.some((change) => change.path === "hotellingModel.assumptions"), true);
   assert.equal(
+    result.project.researchSession?.messages.some((message) =>
+      message.content.includes(providerDraftMessage)
+    ),
+    false
+  );
+  assert.equal(
     result.agentRun.trace.some((event) => event.type === "model_result"),
     true
   );
@@ -134,6 +142,8 @@ test("model generation agent keeps candidate model changes pending until applied
     rawIdea: "研究二手交易平台相关模型",
     now: 1710000000000,
   });
+  const providerDraftMessage =
+    "FULL_MODEL_PROVIDER_DRAFT_SHOULD_STAY_OUT_OF_CHAT";
   const candidateModel = {
     symbols: [],
     sides: {
@@ -207,14 +217,14 @@ test("model generation agent keeps candidate model changes pending until applied
               {
                 id: "msg-provider-model",
                 role: "assistant",
-                content: "我先给出一版候选模型。",
+                content: providerDraftMessage,
                 createdAt: 0,
               },
             ],
           },
         },
         usedFallback: false,
-        assistantMessage: "我先给出一版候选模型。",
+        assistantMessage: providerDraftMessage,
       }),
     }
   );
@@ -232,6 +242,12 @@ test("model generation agent keeps candidate model changes pending until applied
   assert.notDeepEqual(
     result.project.researchSession?.assetSummary.confirmedAssumptions,
     candidateModel.assumptions
+  );
+  assert.equal(
+    result.project.researchSession?.messages.some((message) =>
+      message.content.includes(providerDraftMessage)
+    ),
+    false
   );
   assert.equal(setupChange?.value, candidateModel.modelSetupDraft);
 
@@ -260,6 +276,8 @@ test("model generation agent retries once when self-review finds repairable risk
     rawIdea: "研究二手交易平台相关模型",
     now: 1710000000000,
   });
+  const providerDraftMessage =
+    "FULL_MODEL_PROVIDER_DRAFT_SHOULD_STAY_OUT_OF_CHAT";
   const riskyModel = {
     symbols: [],
     sides: {
@@ -395,5 +413,11 @@ test("model generation agent retries once when self-review finds repairable risk
         event.metadata?.repaired === true
     ),
     true
+  );
+  assert.equal(
+    result.project.researchSession?.messages.some((message) =>
+      message.content.includes(providerDraftMessage)
+    ),
+    false
   );
 });

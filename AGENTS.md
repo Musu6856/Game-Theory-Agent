@@ -22,13 +22,16 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Symbolic equilibrium solving after model confirmation is agentified in v1: it should create traceable equilibrium candidates and reviewable equilibrium patches instead of silently overwriting assets.
 - Property analysis after equilibrium application is agentified in v1: it should create traceable proposition candidates and reviewable property-analysis patches instead of silently overwriting assets.
 - Paper output after property analysis is agentified in v1: it should create traceable section drafts and reviewable paper patches instead of silently overwriting `project.sections`.
+- Chapter-level paper revision is agentified in v2: `revise_paper_section` creates traceable single-section paper patches such as `sections[paper-model]`; applying or rejecting the patch must affect only the targeted section.
 - The controller flow is agentified in v1: it provides automatic next-step suggestions, blocker detection, safe continuation to the next approval point, and trace/history records for controller decisions.
 - Version memory v1 records auditable asset-version events in `researchSession.assetVersionHistory`; applied events retain change snapshots and can generate reviewable rollback patches.
-- Recovery suggestions have started in v1: `src/lib/research-agent/recovery.ts` turns paused/failed/running AgentRun state into safe retry, continue, or review-required prompts without bypassing patch approval.
-- AgentRun checkpoints have started in v1: `src/lib/research-agent/state.ts` records step-level checkpoints for trace display and safer recovery suggestions.
-- Executable checkpoint resume has started in v1: `src/lib/research-agent/resume.ts` lets selected Agent actions retry from a failed checkpoint while preserving the original AgentRun id/history.
-- Trace replay has started in v1: `src/lib/research-agent/trace-replay.ts` groups plan steps, trace events, and checkpoints into a user-readable execution replay.
-- The next Agent milestone is trace filtering/export, background-task-level resume, and stronger automatic repair support.
+- Recovery suggestions v1: `src/lib/research-agent/recovery.ts` turns paused/failed/running AgentRun state into safe retry, continue, or review-required prompts without bypassing patch approval.
+- AgentRun checkpoints v1: `src/lib/research-agent/state.ts` records step-level checkpoints, action, patch id, and stop reason for trace display and safer recovery suggestions.
+- Executable checkpoint resume v1: `src/lib/research-agent/resume.ts` lets selected Agent actions retry from a failed checkpoint while preserving the original AgentRun id/history.
+- Trace replay v1: `src/lib/research-agent/trace-replay.ts` groups plan steps, trace events, and checkpoints into a user-readable execution replay.
+- CAS/SymPy v2 boundary: the current release uses the bounded internal math verifier, does not invoke external Python/SymPy, and routes unsupported expressions to manual review.
+- Product delivery docs now live in `docs/group-trial-guide.md`, `docs/operator-runbook.md`, `docs/demo-scenarios.md`, and `docs/group-trial-test-plan.md`.
+- The next Agent milestone is cross-project memory, background-task-level execution, and stronger automatic repair support.
 - Asset edits must remain reviewable: model, equilibrium, property-analysis, and paper-output changes should be proposed as patches before application.
 
 ## Future directory convention

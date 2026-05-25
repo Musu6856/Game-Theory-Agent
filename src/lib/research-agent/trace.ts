@@ -58,6 +58,7 @@ export function appendSafeContinuationTrace(
   const runStatus = getControllerRunStatus(finalPlan);
   let run = createAgentRun({
     id: `agent-controller-${now}`,
+    action: "safe_continue",
     goal: "推进到下一个审核点",
     now,
     plan: [

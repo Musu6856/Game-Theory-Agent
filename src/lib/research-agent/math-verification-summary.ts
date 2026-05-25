@@ -65,10 +65,14 @@ function getSummaryStatus(
   issues: string[],
   counts: MathVerificationSummary["checkCounts"]
 ): MathVerificationSummaryStatus {
-  if (issues.length > 0 || counts.failed > 0 || counts.condition_gap > 0) {
+  if (
+    issues.length > 0 ||
+    counts.failed > 0 ||
+    counts.condition_insufficient > 0
+  ) {
     return "failed";
   }
-  if (counts.unsupported > 0) return "review_needed";
+  if (counts.unsupported > 0 || counts.manual_review > 0) return "review_needed";
   return "passed";
 }
 
@@ -81,7 +85,7 @@ function getSummaryHeadline(
     case "failed":
       return `发现 ${issueCount} 个数学复核问题，需要先修正。`;
     case "review_needed":
-      return `已有 ${counts.passed} 项自动检查通过，${counts.unsupported} 项需要人工复核。`;
+      return `已有 ${counts.passed} 项自动检查通过，${counts.unsupported + counts.manual_review} 项需要人工复核。`;
     case "passed":
       return `数学验证通过 ${counts.passed} 项自动检查。`;
     case "not_ready":
@@ -114,7 +118,8 @@ function createEmptyCheckCounts() {
   return {
     passed: 0,
     failed: 0,
-    condition_gap: 0,
+    condition_insufficient: 0,
     unsupported: 0,
+    manual_review: 0,
   };
 }

@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import {
   adoptResearchDirection,
   confirmResearchModel,
+  createModelAwareEquilibriumScaffoldResult,
   createInitialResearchSession,
   createExplorationProject,
   generatePropertyAnalysis,
   generateSymbolicEquilibrium,
   normalizeResearchProjectForWorkspace,
 } from "./research-session.ts";
+import { verifyEquilibriumMathConsistency } from "./research-agent/math-verifier.ts";
 
 test("creates direction discovery state with four direction cards and a pending decision", () => {
   const session = createInitialResearchSession(
@@ -253,7 +255,7 @@ test("non-recommended property fallback avoids default commission subsidy compar
   assert.match(analysisText, /multihoming|m_i|kappa|seller/i);
 });
 
-test("other non-default directions use a direction-specific symbolic scaffold", () => {
+test("other non-default directions stop at a model-grounded symbolic scaffold", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "Research secondhand platform quality disclosure",
@@ -264,33 +266,127 @@ test("other non-default directions use a direction-specific symbolic scaffold", 
   );
 
   const solved = generateSymbolicEquilibrium(confirmed);
-  const analyzed = generatePropertyAnalysis(solved);
   const combinedText = [
     solved.hotellingModel?.modelSetupDraft,
     ...(solved.hotellingModel?.profitFunctions.map((entry) => entry.expression) ?? []),
     solved.equilibriumResult?.status,
+    ...(solved.equilibriumResult?.focs ?? []),
     solved.equilibriumResult?.closedForm,
     solved.equilibriumResult?.derivation,
-    ...(analyzed.propertyAnalyses?.map((analysis) =>
-      [
-        analysis.symbolicResult,
-        analysis.propositionDraft,
-        analysis.proofSketch,
-        ...(analysis.warnings ?? []),
-      ].join("\n")
-    ) ?? []),
+    ...(solved.equilibriumResult?.warnings ?? []),
   ].join("\n");
 
-  assert.equal(solved.equilibriumResult?.status, "solved");
-  assert.match(combinedText, /quality-disclosure-trust|direction-specific/i);
+  assert.equal(solved.equilibriumResult?.status, "symbolic_failure");
+  assert.equal(
+    solved.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
+  assert.match(combinedText, /quality-disclosure-trust|当前模型绑定/);
+  assert.match(combinedText, /\\frac\{\\partial \\Pi_A\}\{\\partial \\tau_A\}=0/);
   assert.match(
+    combinedText,
+    /\\frac\{\\partial \\Pi_A\}\{\\partial a_\{quality-disclosure-trust\}\}=0/
+  );
+  assert.doesNotMatch(
     combinedText,
     /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
   );
   assert.match(
     combinedText,
-    /质量|披露|可求解核心|收窄/
+    /质量|披露|符号|机制/
   );
+});
+
+test("model-aware equilibrium scaffold does not leak decisions outside the current model", () => {
+  const hotellingModel = {
+    symbols: [
+      {
+        id: "tau_A",
+        symbol: "tau_A",
+        baseSymbol: "tau",
+        subscript: "A",
+        codeName: "tau_A",
+        name: "A commission",
+        meaning: "Platform A commission.",
+        role: "decision",
+        side: "platform",
+        assumption: "real",
+        recommended: true,
+      },
+      {
+        id: "tau_B",
+        symbol: "tau_B",
+        baseSymbol: "tau",
+        subscript: "B",
+        codeName: "tau_B",
+        name: "B commission",
+        meaning: "Platform B commission.",
+        role: "decision",
+        side: "platform",
+        assumption: "real",
+        recommended: true,
+      },
+      {
+        id: "q",
+        symbol: "q",
+        baseSymbol: "q",
+        codeName: "q",
+        name: "transaction value",
+        meaning: "Transaction value.",
+        role: "parameter",
+        side: "global",
+        assumption: "positive",
+        recommended: true,
+      },
+    ],
+    sides: {
+      consumerSideName: "buyers",
+      merchantSideName: "sellers",
+    },
+    platforms: ["A", "B"],
+    timing: [
+      {
+        id: "pricing",
+        order: 1,
+        name: "platform pricing",
+        decisions: ["tau_A", "tau_B"],
+      },
+    ],
+    utilityFunctions: [],
+    demandDerivation: "n_A^B and n_A^S come from indifference conditions.",
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression: "Pi_A = tau_A * q * n_A^B * n_A^S",
+        notes: "Platform A profit.",
+      },
+      {
+        id: "profit-b",
+        platform: "B",
+        expression: "Pi_B = tau_B * q * n_B^B * n_B^S",
+        notes: "Platform B profit.",
+      },
+    ],
+    assumptions: ["q > 0"],
+    modelSetupDraft: "Two-platform commission model.",
+  };
+
+  const equilibrium = createModelAwareEquilibriumScaffoldResult(
+    hotellingModel,
+    {
+      status: "needs_revision",
+    }
+  );
+  const verification = verifyEquilibriumMathConsistency({
+    model: hotellingModel,
+    equilibrium,
+  });
+
+  assert.doesNotMatch(equilibrium.code, /o_A|o_B/);
+  assert.match(equilibrium.code, /sp\.diff\(Pi_A, tau_a\)/);
+  assert.match(equilibrium.code, /sp\.diff\(Pi_B, tau_b\)/);
+  assert.equal(verification.ok, true);
 });
 
 test("non-default local scaffolds avoid English fallback copy in user-facing assets", () => {

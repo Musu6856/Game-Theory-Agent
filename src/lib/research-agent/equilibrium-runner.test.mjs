@@ -109,6 +109,8 @@ test("equilibrium solving agent proposes a reviewable equilibrium patch with tra
 
 test("equilibrium solving agent keeps candidate equilibrium pending until applied", async () => {
   const project = createConfirmedProject();
+  const providerDraftMessage =
+    "FULL_EQUILIBRIUM_PROVIDER_DRAFT_SHOULD_STAY_OUT_OF_CHAT";
   const candidateEquilibrium = {
     status: "solved",
     concept: "候选均衡概念",
@@ -154,14 +156,14 @@ test("equilibrium solving agent keeps candidate equilibrium pending until applie
               {
                 id: "msg-provider-equilibrium",
                 role: "assistant",
-                content: "候选均衡已生成。",
+                content: providerDraftMessage,
                 createdAt: 0,
               },
             ],
           },
         },
         usedFallback: false,
-        assistantMessage: "候选均衡已生成。",
+        assistantMessage: providerDraftMessage,
       }),
     }
   );
@@ -173,6 +175,12 @@ test("equilibrium solving agent keeps candidate equilibrium pending until applie
 
   assert.notEqual(result.project.equilibriumResult?.closedForm, "\\tau_A^* = 1");
   assert.equal(rootChange?.value, candidateEquilibrium);
+  assert.equal(
+    result.project.researchSession?.messages.some((message) =>
+      message.content.includes(providerDraftMessage)
+    ),
+    false
+  );
 
   const applied = applyResearchAssetPatchToProject(result.project, patch, {
     now: 1710000000001,

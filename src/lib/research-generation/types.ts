@@ -10,6 +10,7 @@ export type ResearchGenerationAction =
   | "solve_equilibrium"
   | "analyze_properties"
   | "draft_paper"
+  | "revise_paper_section"
   | "continue_conversation";
 
 export type ResearchGenerationRequest = {
@@ -17,6 +18,8 @@ export type ResearchGenerationRequest = {
   rawIdea: string;
   selectedDirectionId?: string;
   userMessage?: string;
+  sectionId?: string;
+  instruction?: string;
   modelSource?: ModelSourceMetadata;
   runtimeModelSource?: ModelSourceSettings;
   project?: ResearchProject;

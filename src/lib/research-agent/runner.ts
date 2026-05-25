@@ -61,6 +61,7 @@ export async function runDirectionDiscoveryAgent(
   const runId = client.id ? `agent-${client.id}` : `agent-${now}`;
   let agentRun = createAgentRun({
     id: runId,
+    action: "discover_directions",
     goal: request.rawIdea.trim(),
     now,
     plan: createDirectionDiscoveryPlan(),

@@ -141,6 +141,15 @@ export type GenerateResearchProjectPayload =
       resume?: AgentResumeRequest;
     }
   | {
+      action: "revise_paper_section";
+      rawIdea: string;
+      project: ResearchProject;
+      sectionId: string;
+      instruction?: string;
+      runtimeModelSource?: ModelSourceSettings;
+      resume?: AgentResumeRequest;
+    }
+  | {
       action: "continue_conversation";
       rawIdea: string;
       userMessage: string;
@@ -172,7 +181,8 @@ export async function generateResearchProjectApi(
     payload.action === "build_model" ||
     payload.action === "solve_equilibrium" ||
     payload.action === "analyze_properties" ||
-    payload.action === "draft_paper"
+    payload.action === "draft_paper" ||
+    payload.action === "revise_paper_section"
   ) {
     return readJson<GenerateResearchProjectResult>(
       await fetch(`${BASE_URL}/research/agent`, {

@@ -4,6 +4,7 @@ export type ResearchGenerationAction =
   | "solve_equilibrium"
   | "analyze_properties"
   | "draft_paper"
+  | "revise_paper_section"
   | "continue_conversation";
 
 const PROVIDER_TIMEOUT_MS = 45000;

@@ -19,8 +19,122 @@ import {
 } from "./research-generation/quality-gates.ts";
 import {
   adoptResearchDirection,
+  confirmResearchModel,
   createExplorationProject,
 } from "./research-session.ts";
+
+function createOpennessRevenueShareModel() {
+  return {
+    symbols: [
+      {
+        id: "sym-o-a",
+        symbol: "o_A",
+        baseSymbol: "o",
+        subscript: "A",
+        codeName: "o_A",
+        name: "Platform A openness",
+        meaning: "Platform A model openness level.",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= o_A <= 1",
+        recommended: true,
+      },
+      {
+        id: "sym-o-b",
+        symbol: "o_B",
+        baseSymbol: "o",
+        subscript: "B",
+        codeName: "o_B",
+        name: "Platform B openness",
+        meaning: "Platform B model openness level.",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= o_B <= 1",
+        recommended: true,
+      },
+      {
+        id: "sym-tau-a",
+        symbol: "\\tau_A",
+        baseSymbol: "\\tau",
+        subscript: "A",
+        codeName: "tau_A",
+        name: "Platform A creator revenue share",
+        meaning: "Share of generated revenue paid to creators on platform A.",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= \\tau_A <= 1",
+        recommended: true,
+      },
+      {
+        id: "sym-tau-b",
+        symbol: "\\tau_B",
+        baseSymbol: "\\tau",
+        subscript: "B",
+        codeName: "tau_B",
+        name: "Platform B creator revenue share",
+        meaning: "Share of generated revenue paid to creators on platform B.",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= \\tau_B <= 1",
+        recommended: true,
+      },
+    ],
+    sides: {
+      consumerSideName: "users",
+      merchantSideName: "creators",
+    },
+    platforms: ["A", "B"],
+    timing: [
+      {
+        id: "stage-openness-share",
+        order: 1,
+        name: "Platforms choose openness and creator revenue share.",
+        decisions: ["o_A", "o_B", "\\tau_A", "\\tau_B"],
+      },
+    ],
+    utilityFunctions: [
+      {
+        id: "u-user-a",
+        side: "consumer",
+        platform: "A",
+        expression: "U_A^U=v_U+\\beta o_A+\\eta n_A^C-t_U x",
+        notes: "User utility on platform A.",
+      },
+      {
+        id: "u-creator-a",
+        side: "merchant",
+        platform: "A",
+        expression: "U_A^C=v_C+\\tau_A r n_A^U+\\gamma o_A-t_C y",
+        notes: "Creator utility on platform A.",
+      },
+    ],
+    demandDerivation:
+      "Demand shares come from user and creator indifference conditions in openness and revenue-share differences.",
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression:
+          "\\Pi_A=(1-\\tau_A) r n_A^U n_A^C - \\frac{c_o}{2} o_A^2",
+        notes: "Platform A keeps residual revenue and pays openness cost.",
+      },
+      {
+        id: "profit-b",
+        platform: "B",
+        expression:
+          "\\Pi_B=(1-\\tau_B) r n_B^U n_B^C - \\frac{c_o}{2} o_B^2",
+        notes: "Platform B keeps residual revenue and pays openness cost.",
+      },
+    ],
+    assumptions: [
+      "Two generative AI platforms compete for users and creators.",
+      "Platforms choose openness and creator revenue share.",
+      "No buyer subsidy decision is present in this model.",
+    ],
+    modelSetupDraft:
+      "Two generative AI platforms choose model openness and creator revenue share.",
+  };
+}
 
 test("direction discovery prompt excludes empirical and simulation-only directions", () => {
   const messages = createDiscoverPrompt("研究二手交易平台佣金与补贴策略");
@@ -507,6 +621,47 @@ test("successful model generation includes an equilibrium scaffold for confirmat
   assert.ok(result.project.equilibriumResult);
   assert.equal(result.project.equilibriumResult?.status, "needs_revision");
   assert.match(result.project.equilibriumResult?.derivation ?? "", /等待用户确认/);
+});
+
+test("successful model generation grounds the equilibrium scaffold in provider model decisions", async () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea:
+      "Generative AI platform openness and creator revenue-share competition",
+    now: 1710000000000,
+  });
+
+  const result = await generateResearchProject(
+    {
+      action: "build_model",
+      rawIdea: project.rawIdea,
+      selectedDirectionId: "secondhand-commission-subsidy-hotelling",
+      project,
+    },
+    {
+      complete: async () =>
+        JSON.stringify({
+          assistantMessage:
+            "I drafted an openness and creator revenue-share model.",
+          hotellingModel: createOpennessRevenueShareModel(),
+        }),
+    }
+  );
+  const equilibrium = result.project.equilibriumResult;
+  const scaffoldText = [
+    equilibrium?.concept,
+    ...(equilibrium?.solvingSteps ?? []),
+    ...(equilibrium?.focs ?? []),
+    equilibrium?.closedForm,
+    equilibrium?.derivation,
+    ...(equilibrium?.warnings ?? []),
+  ].join("\n");
+
+  assert.equal(result.usedFallback, false);
+  assert.equal(equilibrium?.status, "needs_revision");
+  assert.match(scaffoldText, /o_A/);
+  assert.match(scaffoldText, /\\tau_A/);
+  assert.doesNotMatch(scaffoldText, /s_i|s_A|s_B/);
 });
 
 test("model generation narrows unresolved mechanism functions before storing assets", async () => {
@@ -1035,6 +1190,60 @@ test("equilibrium generation rejects simulation-only provider output", async () 
       result.project.equilibriumResult?.code,
     ].join("\n"),
     /Monte Carlo|仿真结果|数值模拟结果|simulate/
+  );
+});
+
+test("equilibrium parse fallback stays grounded in the current model decisions", async () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea:
+      "Generative AI platform openness and creator revenue-share competition",
+    now: 1710000000000,
+  });
+  const adopted = adoptResearchDirection(
+    project,
+    "secondhand-commission-subsidy-hotelling"
+  );
+  const confirmed = confirmResearchModel({
+    ...adopted,
+    hotellingModel: createOpennessRevenueShareModel(),
+  });
+
+  const result = await generateResearchProject(
+    {
+      action: "solve_equilibrium",
+      rawIdea: confirmed.rawIdea,
+      project: confirmed,
+    },
+    {
+      complete: async () =>
+        "I derived the FOCs but forgot to return the required JSON object.",
+    }
+  );
+  const equilibrium = result.project.equilibriumResult;
+  const fallbackText = [
+    equilibrium?.concept,
+    ...(equilibrium?.solvingSteps ?? []),
+    ...(equilibrium?.focs ?? []),
+    ...(equilibrium?.conditions ?? []),
+    equilibrium?.closedForm,
+    equilibrium?.derivation,
+    equilibrium?.code,
+    ...(equilibrium?.warnings ?? []),
+  ].join("\n");
+
+  assert.equal(result.usedFallback, true);
+  assert.equal(equilibrium?.status, "symbolic_failure");
+  assert.match(fallbackText, /o_A/);
+  assert.match(fallbackText, /\\tau_A/);
+  assert.doesNotMatch(fallbackText, /s_i|s_A|s_B/);
+  assert.doesNotMatch(
+    fallbackText,
+    /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
+  );
+  assert.equal(
+    result.project.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
   );
 });
 

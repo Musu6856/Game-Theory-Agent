@@ -78,6 +78,9 @@ export function ResearchWorkspace({
   const [isSolvingEquilibrium, setIsSolvingEquilibrium] = useState(false);
   const [isAnalyzingProperties, setIsAnalyzingProperties] = useState(false);
   const [isDraftingPaper, setIsDraftingPaper] = useState(false);
+  const [revisingPaperSectionId, setRevisingPaperSectionId] = useState<
+    string | null
+  >(null);
   const [isContinuingSafely, setIsContinuingSafely] = useState(false);
   const [localComposingProjectId, setLocalComposingProjectId] =
     useState<string | null>(null);
@@ -107,6 +110,7 @@ export function ResearchWorkspace({
     isSolvingEquilibrium ||
     isAnalyzingProperties ||
     isDraftingPaper ||
+    Boolean(revisingPaperSectionId) ||
     isContinuingSafely;
 
   function readStoredModelSourceSettings() {
@@ -469,6 +473,41 @@ export function ResearchWorkspace({
     }
   }
 
+  async function handleRevisePaperSection(
+    sectionId: string,
+    instruction?: string
+  ) {
+    if (!activeProject || isBusy) return;
+
+    setRevisingPaperSectionId(sectionId);
+    try {
+      const result =
+        await generateResearchProjectApi({
+          action: "revise_paper_section",
+          rawIdea: activeProject.rawIdea,
+          project: activeProject,
+          sectionId,
+          instruction,
+          runtimeModelSource: readRuntimeModelSourceSettings(),
+        });
+      const nextProject = getPersistableResearchProject(result);
+      if (!nextProject) {
+        toast.error("章节改写建议生成失败，右侧资产未更新。");
+        return;
+      }
+
+      await persistGeneratedProject(nextProject);
+      toast.success("章节级论文 Agent 已准备改写建议", {
+        description: "请先在右侧审阅并应用，本次不会直接覆盖现有章节。",
+      });
+    } catch (error) {
+      console.error("Failed to revise paper section", error);
+      toast.error("章节改写建议生成失败");
+    } finally {
+      setRevisingPaperSectionId(null);
+    }
+  }
+
   async function handleRunRecovery(suggestion: AgentRecoverySuggestion) {
     const resume = getResumeRequestForSuggestion(suggestion);
 
@@ -806,6 +845,7 @@ export function ResearchWorkspace({
             isSolvingEquilibrium={isSolvingEquilibrium}
             isAnalyzingProperties={isAnalyzingProperties}
             isDraftingPaper={isDraftingPaper}
+            revisingPaperSectionId={revisingPaperSectionId}
             isContinuingSafely={isContinuingSafely}
             onAdopt={handleAdopt}
             onConfirmModel={handleConfirmModel}
@@ -813,6 +853,7 @@ export function ResearchWorkspace({
             onSolveEquilibrium={handleSolveEquilibrium}
             onAnalyzeProperties={handleAnalyzeProperties}
             onDraftPaper={handleDraftPaper}
+            onRevisePaperSection={handleRevisePaperSection}
             onRunRecovery={handleRunRecovery}
             onSaveModelAssumptions={handleSaveModelAssumptions}
             onSaveModelSymbols={handleSaveModelSymbols}

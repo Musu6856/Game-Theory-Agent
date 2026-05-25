@@ -94,6 +94,7 @@ type ResearchAssetsPanelProps = {
   isSolvingEquilibrium?: boolean;
   isAnalyzingProperties?: boolean;
   isDraftingPaper?: boolean;
+  revisingPaperSectionId?: string | null;
   isContinuingSafely?: boolean;
   onAdopt?: (directionId: string) => void;
   onConfirmModel?: () => void;
@@ -101,6 +102,7 @@ type ResearchAssetsPanelProps = {
   onSolveEquilibrium?: () => void;
   onAnalyzeProperties?: () => void;
   onDraftPaper?: () => void;
+  onRevisePaperSection?: (sectionId: string, instruction?: string) => void;
   onRunRecovery?: (suggestion: AgentRecoverySuggestion) => void;
   onSaveModelAssumptions?: (assumptions: string[]) => Promise<void> | void;
   onSaveModelSymbols?: (symbols: NonNullable<ResearchProject["hotellingModel"]>["symbols"]) => Promise<void> | void;
@@ -141,6 +143,7 @@ function ResearchAssetsPanelContent({
   isSolvingEquilibrium,
   isAnalyzingProperties,
   isDraftingPaper,
+  revisingPaperSectionId,
   isContinuingSafely,
   onAdopt,
   onConfirmModel,
@@ -148,6 +151,7 @@ function ResearchAssetsPanelContent({
   onSolveEquilibrium,
   onAnalyzeProperties,
   onDraftPaper,
+  onRevisePaperSection,
   onRunRecovery,
   onSaveModelAssumptions,
   onSaveModelSymbols,
@@ -376,7 +380,9 @@ function ResearchAssetsPanelContent({
             project={project}
             canDraftPaper={canDraftPaper}
             isDraftingPaper={isDraftingPaper}
+            revisingPaperSectionId={revisingPaperSectionId}
             onDraftPaper={onDraftPaper}
+            onRevisePaperSection={onRevisePaperSection}
           />
         ) : null}
 
@@ -1347,12 +1353,16 @@ function PaperTab({
   project,
   canDraftPaper,
   isDraftingPaper,
+  revisingPaperSectionId,
   onDraftPaper,
+  onRevisePaperSection,
 }: {
   project?: ResearchProject;
   canDraftPaper: boolean;
   isDraftingPaper?: boolean;
+  revisingPaperSectionId?: string | null;
   onDraftPaper?: () => void;
+  onRevisePaperSection?: (sectionId: string, instruction?: string) => void;
 }) {
   const markdown = project ? buildResearchProjectMarkdown(project) : "";
   const sections = project?.sections ?? [];
@@ -1419,11 +1429,37 @@ function PaperTab({
           <div className="space-y-3">
             {sections.map((section) => (
               <article key={section.id} className="rounded-md border bg-background p-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                  <FileText className="size-3.5" />
-                  {section.status}
-                </p>
-                <h3 className="mt-1 text-sm font-semibold">{section.title}</h3>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <FileText className="size-3.5" />
+                      {section.status}
+                    </p>
+                    <h3 className="mt-1 text-sm font-semibold">{section.title}</h3>
+                  </div>
+                  {onRevisePaperSection ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 gap-1.5"
+                      disabled={Boolean(revisingPaperSectionId)}
+                      onClick={createResearchActionClickHandler(() =>
+                        onRevisePaperSection(
+                          section.id,
+                          `改写「${section.title}」，保持与当前模型、均衡、性质分析和来源依据一致。`
+                        )
+                      )}
+                    >
+                      {revisingPaperSectionId === section.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <FileText className="size-3.5" />
+                      )}
+                      章节改写建议
+                    </Button>
+                  ) : null}
+                </div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
                   {section.content}
                 </p>
@@ -1544,11 +1580,13 @@ function MathVerificationSummaryPanel({
           <InfoTile label="需修正" value={`${summary.checkCounts.failed} 项`} />
           <InfoTile
             label="条件不足"
-            value={`${summary.checkCounts.condition_gap} 项`}
+            value={`${summary.checkCounts.condition_insufficient} 项`}
           />
           <InfoTile
             label="人工复核"
-            value={`${summary.checkCounts.unsupported} 项`}
+            value={`${
+              summary.checkCounts.unsupported + summary.checkCounts.manual_review
+            } 项`}
           />
         </div>
         <p className="mt-3 font-medium text-foreground">

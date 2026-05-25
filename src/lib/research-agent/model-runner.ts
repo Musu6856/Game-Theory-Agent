@@ -14,6 +14,10 @@ import type {
   ResearchGenerationRequest,
   ResearchGenerationResponse,
 } from "../research-generation/types.ts";
+import {
+  appendOrReplaceProposedPatch,
+  recordProposedPatchStep,
+} from "./patch-proposals.ts";
 import { createModelGenerationPlan } from "./planner.ts";
 import {
   createResumableAgentRun,
@@ -57,6 +61,7 @@ export async function runModelGenerationAgent(
     resume: request.resume,
     fallback: {
       id: runId,
+      action: "build_model",
       goal: request.rawIdea.trim(),
       now,
       plan: createModelGenerationPlan(),
@@ -247,29 +252,21 @@ export async function runModelGenerationAgent(
   );
   agentRun = updateStepStatus(agentRun, "review-model", "completed", now);
 
-  agentRun = updateStepStatus(agentRun, "propose-model-patch", "running", now);
   const patch = createModelCandidatePatch({
     model: candidateModel,
     now,
-    sourceMessageId:
-      buildResult.project.researchSession?.messages.at(-1)?.id ??
-      request.project.researchSession?.messages.at(-1)?.id,
+    sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
     riskNotes: review.issues,
   });
-  agentRun = appendTraceEvent(
+  const proposal = recordProposedPatchStep({
     agentRun,
-    {
-      stepId: "propose-model-patch",
-      type: "tool_result",
-      message: "Created a reviewable model patch and paused for user approval.",
-      metadata: {
-        patchId: patch.id,
-        changeCount: patch.changes.length,
-      },
-    },
-    now
-  );
-  agentRun = updateStepStatus(agentRun, "propose-model-patch", "completed", now);
+    project: request.project,
+    patch,
+    stepId: "propose-model-patch",
+    now,
+    message: "Created a reviewable model patch and paused for user approval.",
+  });
+  agentRun = proposal.agentRun;
   agentRun = {
     ...agentRun,
     status: "paused",
@@ -282,7 +279,7 @@ export async function runModelGenerationAgent(
   const project = attachModelPatchForReview({
     originalProject: request.project,
     buildResult,
-    patch,
+    patch: proposal.patch,
     agentRun,
     now,
     reviewIssues: review.issues,
@@ -433,8 +430,8 @@ function attachModelPatchForReview({
   reviewIssues: string[];
 }) {
   const session =
-    buildResult.project.researchSession ??
     originalProject.researchSession ??
+    buildResult.project.researchSession ??
     createInitialResearchSession(originalProject.rawIdea);
   const reviewBaseProject = createReviewBaseProject(
     originalProject,
@@ -446,7 +443,7 @@ function attachModelPatchForReview({
     {
       id: `msg-model-agent-review-${now}`,
       role: "assistant" as const,
-      content: createReviewMessage(buildResult.assistantMessage, reviewIssues),
+      content: createReviewMessage(reviewIssues),
       createdAt: 0,
     },
   ];
@@ -459,7 +456,7 @@ function attachModelPatchForReview({
         phase: "model",
         messages,
         agentRun,
-        assetPatches: [...previousPatches, patch],
+        assetPatches: appendOrReplaceProposedPatch(previousPatches, patch),
         assetSummary: {
           ...createReviewAssetSummary(reviewBaseProject, session.assetSummary),
           pendingDecision: {
@@ -531,17 +528,14 @@ function createReviewBaseProject(
   return candidateProject;
 }
 
-function createReviewMessage(
-  assistantMessage: string | undefined,
-  reviewIssues: string[]
-) {
+function createReviewMessage(reviewIssues: string[]) {
   const reviewLine =
     reviewIssues.length > 0
       ? `自检提示：${reviewIssues.join("；")}。`
       : "自检结果：暂未发现阻断符号均衡求解的明显风险。";
 
   return [
-    assistantMessage?.trim() || "我已生成一版模型候选。",
+    "我已生成一版模型候选，并放到右侧作为待审核修改建议。",
     "",
     `${reviewLine}我没有直接把它当作已确认模型推进到均衡，而是放到右侧作为待审核修改建议。`,
   ].join("\n");

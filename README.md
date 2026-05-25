@@ -76,6 +76,8 @@ PaperForge 现在已经有方向、建模、均衡、性质分析和论文输出
 
 选方向之后的模型设定、符号、参数、均衡、性质分析和论文输出仍复用已有研究能力作为底座，但关键推进步骤已经进入 Agent 化 v1：采纳方向后，系统会先生成模型候选、做基础自检、留下 Agent 执行记录，并把候选模型作为待审核 patch；模型确认后，均衡求解会先生成候选推导、自检闭式解/FOC/条件，再把候选均衡作为待审核 patch；均衡应用后，性质分析会先生成比较静态与命题候选、自检条件完整性，再作为待审核 patch 进入右侧资产；性质分析稳定后，论文输出 Agent 会基于已应用资产整理章节草稿，并作为 `paper` patch 等待用户应用。
 
+章节级论文 Agent v2 已开始可用：已有草稿章节后，用户可以在论文页对单个章节生成“章节改写建议”。该动作走 `revise_paper_section` Agent action，记录独立 AgentRun trace，并生成类似 `sections[paper-model]` 的单章节 `paper` patch；应用前不会覆盖 `project.sections`，拒绝 patch 也不会改变章节正文。
+
 模型、均衡和性质分析现在具备自检与修复闭环 v1：如果第一版候选在 Agent 自检中暴露可修复风险，runner 会带着具体问题重新请求一次候选；修复结果会再次自检，trace 会记录修复尝试、剩余问题和是否修复成功。无论是否修复成功，正式资产仍然只通过待审核 patch 进入右侧工作台，不会被静默覆盖。
 
 数学验证 v1 已接入均衡求解和性质分析流程：Agent 会检查候选结果里引用的数学符号是否能在已确认模型或均衡上下文中找到来源。如果候选均衡或命题使用了未定义、未落地的符号，现有自检修复闭环会带着具体问题重试一次。当前版本是轻量的符号一致性检查，不是完整的 SymPy/CAS 复算；后续再扩展为更严格的代数验证。
@@ -195,8 +197,8 @@ npm run dev
 至少需要：
 
 ```bash
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
+CLERK_SECRET_KEY=sk_live_...
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 
@@ -206,6 +208,8 @@ DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
 ```
+
+小范围试用或部署环境必须使用 Clerk production keys；`pk_test_` / `sk_test_` 只适合本地开发。
 
 服务端默认按 `DEEPSEEK_API_KEY` -> `OPENAI_COMPATIBLE_API_KEY` -> `MIMO_API_KEY` -> `OPENAI_API_KEY` 的顺序选择默认模型来源。
 
@@ -232,14 +236,37 @@ Agent 入口位于 `src/app/api/research/agent/route.ts`，新编排代码位于
 
 ```bash
 npm run lint
+npm test
 npx tsc --noEmit
 npm run build
 ```
 
 如果只修改文档，至少运行 `git diff --check` 或等效的空白检查。
 
+上线前按 [docs/release-checklist.md](docs/release-checklist.md) 完成自动检查、浏览器冒烟检查和安全检查。
+
+## 产品化交付文档
+
+- [课题组试用指南](docs/group-trial-guide.md)
+- [维护者 Runbook](docs/operator-runbook.md)
+- [Demo 场景](docs/demo-scenarios.md)
+- [小范围测试计划](docs/group-trial-test-plan.md)
+
 ## 当前状态
 
 截至 2026-05-25，“方向发现 Agent 化”“模型生成 Agent 化 v1”“均衡求解 Agent 化 v1”“性质分析 Agent 化 v1”“论文输出 Agent 化 v1”“总控流程 v1”“审核负担管理 v1”“低风险草稿快速处理 v1”“审核后续航 v1”“版本影响复盘 v1”“项目级版本复盘摘要 v1”“自检修复闭环 v1”“数学验证 v1/v2”“结构化数学验证摘要 v1”“CAS 复算 v1”“条件强弱检查 v1”“命题组去重/冲突检查 v1”“章节级论文复核 v1”“版本记忆 v1”“恢复建议/续跑 v1”和“trace 回放/项目审计 v1”已经进入可手测状态。当前 Agent 水平是：能围绕用户想法生成检索词，调用开放学术检索和 Tavily MCP/REST，整理来源依据，生成方向建议；用户采纳方向后，模型、均衡、性质分析和论文草稿都会经过 Agent 计划、自检、必要时一次有边界修复、trace 和待审核 patch，均衡和性质分析候选还会检查数学符号是否来自已确认模型或均衡上下文，部分简单偏导命题会从均衡闭式解复算校验，并初步核对“为正/为负/为零”的符号条件是否写反、缺少必要参数正负条件或在命题组内部重复/冲突；数学验证现在会把结果区分为已通过、需修正、条件不足和人工复核，避免把暂不支持的复杂表达式误判为正确或错误；应用前不会静默覆盖右侧资产；工作台会根据当前资产状态提示下一步，也能安全推进到下一个待审核点，并在有待审核修改建议、高风险版本复盘或数学验证失败时停下来；历史页会显示版本复盘摘要，质量页、均衡页和性质页会显示数学验证摘要，论文页会显示章节级复核任务；项目审计报告会导出来源、方向、执行记录、版本复盘、数学验证和章节复核上下文；如果最近一次 AgentRun 失败、暂停或疑似中断，系统会给出带最近检查点的安全恢复建议，并可对部分 Agent action 沿用原 runId 续跑。
 
 版本历史现在会记录“应用/拒绝了哪条 patch、改了哪些路径、何时审核”，并为已应用记录保留原值/新值快照、审核后的后续建议和影响复盘。右侧“历史”tab 可以查看项目级待复核数量、最高优先级、受影响资产、最近影响和建议下一步，也可以从已应用记录生成“回滚建议”；回滚仍然是待审核 patch，不会自动覆盖资产。还没有完成的是完整研究 Agent loop：checkpoint 续跑目前从失败步骤重新执行，不恢复半个 HTTP 请求或后台长任务进程；项目级审计报告已经覆盖单项目内的来源、方向、执行记录、数学验证、章节复核和资产版本历史，但还没有跨项目、跨版本比较报告。
+
+## 下一轮产品化主线
+
+当前目标是先把单项目研究闭环做成可给课题组小范围使用的产品化版本，跨版本/跨项目记忆留到下一轮。推进顺序为：
+
+1. 上线基础包：生产环境配置、发布检查清单、统一测试脚本、部署说明和浏览器冒烟检查。
+2. 章节级论文 Agent v2：把章节复核从只读提示升级为可选择章节、生成章节改写 patch、预览差异并采纳/拒绝/回退的入口。
+3. CAS/SymPy v2：扩大数学复算范围，并明确区分已通过、需修正、条件不足、暂不支持和人工复核。
+4. 长任务续跑 v1：实现步骤级持久化恢复、失败重试和 trace 延续，不恢复半个 HTTP 请求。
+5. 产品交付包：课题组试用指南、维护者 runbook、demo 场景、反馈模板和能力边界说明。
+6. 小范围测试准备：定义 10-15 人试用指标、停止条件和上线前验收清单。
+
+详细计划见 [docs/productization-release-plan.md](docs/productization-release-plan.md)。

@@ -65,7 +65,7 @@ import {
 } from "./research-generation/parsers.ts";
 import {
   createExplorationProject,
-  createSymbolicEquilibriumScaffoldResult,
+  createModelAwareEquilibriumScaffoldResult,
   generatePropertyAnalysis,
   generateSymbolicEquilibrium,
 } from "./research-session.ts";
@@ -779,7 +779,10 @@ async function buildModel(
         assetSummary,
       },
       hotellingModel,
-      equilibriumResult: createSymbolicEquilibriumScaffoldResult(),
+      equilibriumResult: createModelAwareEquilibriumScaffoldResult(
+        hotellingModel,
+        selectedDirection
+      ),
     },
     usedFallback: false,
     assistantMessage,

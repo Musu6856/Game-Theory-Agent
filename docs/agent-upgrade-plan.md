@@ -23,7 +23,7 @@ PaperForge-Agent 最终应该像一个中文理论研究助理，而不是一次
 
 1. 版本对比与影响摘要：应用、拒绝或回滚 patch 后，系统要解释本次变更影响了哪些资产、复核重点是什么、下一步为什么要重算或改写。
 2. 更强的数学验证：在已有符号一致性、偏导复算、符号方向和条件强弱检查基础上，增加结构化验证摘要，明确“已复算通过 / 复算失败 / 条件不足 / 暂不支持复算”的差别。
-3. 章节级论文 Agent 雏形：论文输出不只是一整份草稿，还要能按章节提示依赖关系、引用一致性和需要复核的章节任务。
+3. 章节级论文 Agent v2：论文输出不只是一整份草稿，还要能按章节提示依赖关系、引用一致性和需要复核的章节任务，并能为单个章节生成可审阅改写 patch。
 4. 必要 UI：右侧工作台展示版本复盘、数学验证摘要、章节复核任务，并让下一步建议优先考虑高风险版本影响和数学风险。
 
 本轮边界：
@@ -294,6 +294,7 @@ type EvidenceSource = {
 - 均衡求解 Agent 化 v1 已完成，但底层候选均衡仍复用 `src/lib/ai-research-generation.ts` 的单步求解能力。
 - 性质分析 Agent 化 v1 已完成，但底层候选命题仍复用 `src/lib/ai-research-generation.ts` 的单步性质分析能力。
 - 论文输出 Agent 化 v1 已完成，当前会基于已应用资产确定性整理论文章节草稿，不额外自由补写新理论。
+- 章节级论文 Agent v2 已完成最小闭环：`revise_paper_section` 会选择单个章节，记录 trace，生成 `sections[sectionId]` 级别的 `paper` patch，并等待用户应用或拒绝。
 - Agent 层负责计划、trace、自检、审批暂停和待审核模型/均衡/性质分析/论文输出 patch；不是重复做参数展示。
 
 ### Phase 2: 模型生成 Agent 化
@@ -374,7 +375,10 @@ type EvidenceSource = {
 - 已完成：应用论文 patch 后才把候选章节写入右侧论文输出。
 - 已完成 v1：`src/lib/research-agent/paper-section-review.ts` 会为已有论文章节生成章节级复核任务，标出章节依赖方向/来源/模型/均衡/性质分析中的哪些资产。
 - 已完成 v1：论文页会显示章节复核摘要和每章下一步，帮助用户优先检查依赖模型、均衡和命题的章节。
-- 待加强：当前章节级能力仍是复核任务和改写建议，不是自动逐章重写；后续可扩展章节级改写 patch、引用格式、LaTeX/PDF 导出和来源引用一致性检查。
+- 已完成 v2：`src/lib/research-agent/paper-section-runner.ts` 支持单章节改写 Agent。它会创建章节级计划、记录目标章节和依赖摘要、生成候选改写内容，并把结果作为 `paper` patch 写入待审核区。
+- 已完成 v2：`src/lib/research-asset-patch-apply.ts` 支持 `sections[sectionId]`、`paper.sections[sectionId]` 和 `sections.sectionId` 等单章节 paper patch 路径；应用时只替换或移除目标章节，拒绝 patch 不改变章节正文。
+- 已完成 v2：论文页的每个草稿章节都有“章节改写建议”入口；生成后继续复用现有 patch 预览、应用和拒绝流程，不直接覆盖正文。
+- 待加强：当前章节级改写是确定性 reviewable loop，不是高润色 LLM 逐章写作器；后续可扩展章节专用提示词、规范引用格式、LaTeX/PDF 导出和来源引用一致性检查。
 
 ### Phase 6: 总控流程与自动下一步建议
 
@@ -465,7 +469,22 @@ type EvidenceSource = {
 - 已完成 v1：单项目审计报告会包含项目级版本复盘摘要、数学验证摘要和章节复核摘要，方便一次导出后看到研究风险和下一步。
 - 待加强：更完整的跨版本比较、跨项目审计报告、后台任务级续跑和批量恢复工具。
 
-## 8. UI 方向
+## 8. 当前产品化主线
+
+本轮已把 PaperForge-Agent 从“Agent v1 可手测”推进到“可给课题组小范围使用”的产品化候选版本。跨版本/跨项目记忆暂不进入本轮，留到下一轮。
+
+本轮完成范围：
+
+1. 上线基础包：已补齐生产环境配置说明、测试脚本、发布检查清单、release readiness helper 和真实浏览器冒烟检查要求。
+2. 章节级论文 Agent v2：已支持选择单个章节、生成 `sections[sectionId]` 级 paper patch，并通过应用/拒绝流程保证只影响目标章节。
+3. CAS/SymPy v2：已将数学验证结果结构化为通过、失败、条件不足、暂不支持和人工复核；本轮不调用外部 SymPy，复杂表达式不会被包装为已证明。
+4. 长任务续跑 v1：已记录 action、step checkpoint、patch id 和 stop reason；恢复时沿用旧 AgentRun，重复重试不会重复生成同一成功步骤的待审核 patch。
+5. 产品交付包：已补齐课题组试用指南、维护者 runbook、demo 场景和反馈模板。
+6. 小范围测试准备：已定义 10-15 人试用窗口、成功指标、停止条件、试用记录模板和上线前 release checklist。
+
+本轮详细实施计划见 [docs/productization-release-plan.md](productization-release-plan.md)。
+
+## 9. UI 方向
 
 未来研究工作台可以加入 Agent 面板：
 
@@ -479,7 +498,7 @@ type EvidenceSource = {
 
 UI 不应把 Agent 描述成“万能自动论文生成器”。它应该是研究者可审计、可打断、可修正的协作者。
 
-## 9. 测试与验收
+## 10. 测试与验收
 
 文档阶段：
 
@@ -502,7 +521,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-## 10. 默认决策
+## 11. 默认决策
 
 - 新 Agent 代码放在 `src/lib/research-agent/`
 - 不在根目录创建独立 `agent/`

@@ -99,6 +99,151 @@ test("equilibrium math verifier accepts symbols grounded in the model", () => {
   );
 });
 
+test("equilibrium math verifier matches generated scaffold aliases to model symbols", () => {
+  const mechanismModel = {
+    ...model,
+    symbols: [
+      ...model.symbols,
+      {
+        id: "mu_d1",
+        symbol: "mu_d1",
+        baseSymbol: "mu",
+        subscript: "d1",
+        codeName: "mu_d1",
+        name: "d1 mechanism multiplier",
+        meaning: "Auxiliary mechanism variable in the generated model.",
+        role: "parameter",
+        side: "global",
+        assumption: "nonnegative",
+        recommended: true,
+      },
+    ],
+    timing: [
+      {
+        stage: 1,
+        actor: "platform",
+        decisions: ["tau_A", "mu_d1"],
+      },
+    ],
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression: "Pi_A = tau_A * q - mu_d1",
+        notes: "Generated model profit expression.",
+      },
+    ],
+  };
+
+  const result = verifyEquilibriumMathConsistency({
+    model: mechanismModel,
+    equilibrium: {
+      status: "needs_revision",
+      concept: "model-grounded scaffold",
+      solvingSteps: ["Use current decisions tau_a and \\mu_{d1}."],
+      focs: ["partial Pi_A / partial tau_a = 0"],
+      conditions: ["q > 0", "\\mu_{d1} >= 0"],
+      closedForm: "Current model-bound equilibrium scaffold.",
+      derivation: "The scaffold references tau_a and \\mu_{d1} from the model.",
+      code: "sp.solve([foc_tau_a], [tau_a, mu_d1])",
+      warnings: [],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});
+
+test("equilibrium math verifier accepts generic platform-indexed notation", () => {
+  const platformIndexedModel = {
+    ...model,
+    symbols: [
+      ...model.symbols,
+      {
+        id: "tau_B",
+        symbol: "tau_B",
+        baseSymbol: "tau",
+        subscript: "B",
+        codeName: "tau_B",
+        name: "B platform commission",
+        meaning: "Platform B commission.",
+        role: "decision",
+        side: "platform",
+        assumption: "real",
+        recommended: true,
+      },
+      {
+        id: "s_A",
+        symbol: "s_A",
+        baseSymbol: "s",
+        subscript: "A",
+        codeName: "s_A",
+        name: "A buyer subsidy",
+        meaning: "Platform A buyer subsidy.",
+        role: "decision",
+        side: "platform",
+        assumption: "real",
+        recommended: true,
+      },
+      {
+        id: "s_B",
+        symbol: "s_B",
+        baseSymbol: "s",
+        subscript: "B",
+        codeName: "s_B",
+        name: "B buyer subsidy",
+        meaning: "Platform B buyer subsidy.",
+        role: "decision",
+        side: "platform",
+        assumption: "real",
+        recommended: true,
+      },
+    ],
+    timing: [
+      {
+        stage: 1,
+        actor: "platform",
+        decisions: ["tau_A", "tau_B", "s_A", "s_B"],
+      },
+    ],
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression: "Pi_A = tau_A * q - s_A",
+        notes: "Platform A profit.",
+      },
+      {
+        id: "profit-b",
+        platform: "B",
+        expression: "Pi_B = tau_B * q - s_B",
+        notes: "Platform B profit.",
+      },
+    ],
+  };
+
+  const result = verifyEquilibriumMathConsistency({
+    model: platformIndexedModel,
+    equilibrium: {
+      status: "solved",
+      concept: "symmetric equilibrium",
+      solvingSteps: ["Solve the platform i problem for tau_i and s_i."],
+      focs: [
+        "\\frac{\\partial \\Pi_i}{\\partial \\tau_i}=0",
+        "\\frac{\\partial \\Pi_i}{\\partial s_i}=0",
+      ],
+      conditions: ["q > 0"],
+      closedForm: "\\tau_i^*=\\frac{q}{2}, s_i^*=\\frac{q}{4}",
+      derivation: "The symmetric solution is written with generic platform index i.",
+      code: "sp.solve([foc_tau_i, foc_s_i], [tau_i, s_i])",
+      warnings: [],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});
+
 test("equilibrium math verifier rejects ungrounded variables", () => {
   const result = verifyEquilibriumMathConsistency({
     model,
@@ -452,7 +597,49 @@ test("property math verifier rejects a directional sign claim without required p
   assert.ok(
     result.checks.some(
       (check) =>
-        check.kind === "sign_condition" && check.status === "condition_gap"
+        check.kind === "sign_condition" &&
+        check.status === "condition_insufficient"
+    )
+  );
+});
+
+test("property math verifier routes implicit systems to manual review", () => {
+  const result = verifyPropertyAnalysisMathConsistency({
+    model,
+    equilibrium: {
+      status: "symbolic_failure",
+      concept: "隐式系统",
+      solvingSteps: ["列出一阶条件 F(z, theta)=0"],
+      focs: ["F(tau_A, alpha_B)=0"],
+      conditions: ["det J != 0"],
+      closedForm: "F(tau_A, alpha_B)=0",
+      derivation: "当前只有隐式方程，没有 tau_A 的显式闭式解。",
+      code: "F = sp.Function('F')",
+      warnings: ["implicit system"],
+    },
+    analyses: [
+      {
+        id: "implicit-comparative-static",
+        target: "tau_A^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_A^*}{\\partial \\alpha_B}=-F_{\\alpha}/F_{\\tau}",
+        signCondition: "需要人工判断",
+        propositionDraft: "命题：隐式系统下买方网络效应改变佣金。",
+        proofSketch: "由隐函数定理得到符号方向。",
+        intuition: "隐式系统需要额外条件。",
+        warnings: [],
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(
+    result.checks.some(
+      (check) =>
+        check.kind === "calculus_recheck" &&
+        check.status === "manual_review"
     )
   );
 });
@@ -532,7 +719,8 @@ test("property math verifier reports unsupported calculus checks without blockin
   assert.ok(
     result.checks.some(
       (check) =>
-        check.kind === "calculus_recheck" && check.status === "unsupported"
+        check.kind === "calculus_recheck" &&
+        check.status === "manual_review"
     )
   );
 });

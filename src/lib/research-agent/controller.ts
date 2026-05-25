@@ -201,11 +201,13 @@ export function recommendNextAgentStep(
     session?.assetVersionHistory ?? []
   );
   if (versionSummary.highestPriority === "high") {
+    const targetTab = getTabForVersionReviewSummary(versionSummary);
+
     return {
       status: "blocked",
       title: "先做版本复盘",
       reason: `版本复盘显示最近审核影响了${formatAffectedAssetKinds(versionSummary.affectedAssetKinds)}，建议先确认这些资产是否需要重算或改写。`,
-      targetTab: "history",
+      targetTab,
       blocker: {
         kind: "version_review",
         label: "版本影响待复核",
@@ -435,6 +437,29 @@ function getTabForPatchKind(kind: ResearchAssetKind): ResearchAssetsTab {
       return "properties";
     case "paper":
       return "paper";
+  }
+}
+
+function getTabForVersionReviewSummary(
+  summary: ReturnType<typeof buildVersionReviewSummary>
+): ResearchAssetsTab {
+  const latestAppliedItem =
+    summary.reviewItems.find((item) => item.action !== "rejected_patch") ??
+    summary.reviewItems.find(
+      (item) => item.priority === summary.highestPriority
+    );
+
+  switch (latestAppliedItem?.assetKind) {
+    case "model":
+      return "equilibrium";
+    case "equilibrium":
+      return "properties";
+    case "properties":
+      return "paper";
+    case "paper":
+      return "paper";
+    default:
+      return "history";
   }
 }
 

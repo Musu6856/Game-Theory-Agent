@@ -155,3 +155,34 @@ export function createPaperOutputPlan(): AgentStep[] {
     },
   ];
 }
+
+export function createPaperSectionRevisionPlan(): AgentStep[] {
+  return [
+    {
+      id: "select-paper-section",
+      kind: "reflection",
+      title: "Select target paper section",
+      status: "pending",
+    },
+    {
+      id: "draft-paper-section",
+      kind: "tool",
+      toolName: "paper.reviseSection",
+      title: "Draft a section-level revision",
+      status: "pending",
+    },
+    {
+      id: "review-section-grounding",
+      kind: "reflection",
+      title: "Review section grounding and dependencies",
+      status: "pending",
+    },
+    {
+      id: "propose-section-patch",
+      kind: "approval",
+      toolName: "asset.proposePatch",
+      title: "Propose reviewable section patch",
+      status: "pending",
+    },
+  ];
+}

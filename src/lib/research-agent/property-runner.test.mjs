@@ -487,6 +487,8 @@ test("property analysis agent repairs repeated property topics even without oppo
 test("property analysis agent keeps candidate analyses pending until applied", async () => {
   const project = createSolvedProject();
   const candidateAnalyses = createCandidateAnalyses();
+  const providerDraftMessage =
+    "FULL_PROPERTY_PROVIDER_DRAFT_SHOULD_STAY_OUT_OF_CHAT";
 
   const result = await runPropertyAnalysisAgent(
     {
@@ -520,14 +522,14 @@ test("property analysis agent keeps candidate analyses pending until applied", a
               {
                 id: "msg-provider-properties",
                 role: "assistant",
-                content: "候选性质分析已生成。",
+                content: providerDraftMessage,
                 createdAt: 0,
               },
             ],
           },
         },
         usedFallback: false,
-        assistantMessage: "候选性质分析已生成。",
+        assistantMessage: providerDraftMessage,
       }),
     }
   );
@@ -539,6 +541,12 @@ test("property analysis agent keeps candidate analyses pending until applied", a
 
   assert.equal(result.project.propertyAnalyses?.length ?? 0, 0);
   assert.equal(rootChange?.value, candidateAnalyses);
+  assert.equal(
+    result.project.researchSession?.messages.some((message) =>
+      message.content.includes(providerDraftMessage)
+    ),
+    false
+  );
 
   const applied = applyResearchAssetPatchToProject(result.project, patch, {
     now: 1710000000001,
