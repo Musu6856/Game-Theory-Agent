@@ -229,6 +229,44 @@ function applyEquilibriumAssetPatch(
     patch.changes
   );
 
+  if (equilibrium.status !== "solved") {
+    return {
+      ...project,
+      equilibriumResult: equilibrium,
+      researchSession: {
+        ...session,
+        phase: "equilibrium",
+        assetFreshness: {
+          ...(session.assetFreshness ?? createFreshResearchAssetFreshness()),
+          equilibrium: "fresh",
+          properties: "stale",
+        },
+        assetSummary: {
+          ...session.assetSummary,
+          equilibriumStatus: equilibrium.status,
+          pendingDecision: {
+            kind: "solve_equilibrium",
+            prompt:
+              "这条均衡草稿还没有得到可用于性质分析的闭式解。请继续修正模型或重新生成符号均衡。",
+          },
+          nextActions: [
+            "检查当前一阶条件草稿",
+            "补全需求份额、利润函数或闭式求解步骤",
+            "重新生成符号均衡",
+          ],
+        },
+        messages: [
+          ...session.messages,
+          createAssistantMessage(
+            "msg-equilibrium-patch-applied",
+            "我已把这条均衡草稿应用到右侧均衡资产里，但它还没有得到可用于性质分析的闭式解。请继续修正模型或重新生成符号均衡。",
+            now
+          ),
+        ],
+      },
+    };
+  }
+
   return {
     ...project,
     equilibriumResult: equilibrium,

@@ -235,10 +235,11 @@ export function generatePropertyAnalysis(project: ResearchProject): ResearchProj
 
   if (
     !project.equilibriumResult ||
-    project.equilibriumResult.status === "idle" ||
-    project.equilibriumResult.status === "needs_revision"
+    project.equilibriumResult.status !== "solved"
   ) {
-    throw new Error("A symbolic equilibrium asset is required before analysis.");
+    throw new Error(
+      "A solved closed-form symbolic equilibrium asset is required before analysis."
+    );
   }
 
   const analyses = createPropertyAnalysesForDirection(
@@ -356,6 +357,35 @@ export function normalizeResearchProjectForWorkspace(
             prompt:
               "模型已确认。请检查需求份额、一阶条件和约束是否符合你的论文设定；确认后点击开始符号求解。",
           },
+        },
+      },
+    };
+  }
+
+  if (
+    session &&
+    workspaceProject.equilibriumResult?.status === "symbolic_failure" &&
+    (session.phase !== "equilibrium" ||
+      session.assetSummary.pendingDecision?.kind === "analyze_properties")
+  ) {
+    return {
+      ...workspaceProject,
+      researchSession: {
+        ...session,
+        phase: "equilibrium",
+        assetSummary: {
+          ...session.assetSummary,
+          equilibriumStatus: "symbolic_failure",
+          pendingDecision: {
+            kind: "solve_equilibrium",
+            prompt:
+              "当前均衡草稿还没有闭式解，不能进入性质分析。请修正模型或重新生成符号均衡。",
+          },
+          nextActions: [
+            "检查当前一阶条件草稿",
+            "补全需求份额、利润函数或闭式求解步骤",
+            "重新生成符号均衡",
+          ],
         },
       },
     };

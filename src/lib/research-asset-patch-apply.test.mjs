@@ -12,6 +12,7 @@ import {
   applyResearchAssetPatchToProject,
   markProjectPatchStatus,
 } from "./research-asset-patch-apply.ts";
+import { getResearchFlowState } from "./research-flow.ts";
 
 function createSolvedProject() {
   const project = createExplorationProject({
@@ -490,6 +491,49 @@ test("applies an equilibrium patch to the right-side equilibrium result", () => 
     nextProject.researchSession?.assetVersionHistory?.at(-1)?.changedPaths,
     ["equilibriumResult.closedForm", "equilibriumResult.conditions"]
   );
+});
+
+test("applying a symbolic failure equilibrium patch keeps solving as the next step", () => {
+  const project = createSolvedProject();
+  const patch = {
+    id: "patch-equilibrium-symbolic-failure",
+    kind: "equilibrium",
+    summary: "Equilibrium draft did not reach a closed form",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "equilibriumResult",
+        value: {
+          status: "symbolic_failure",
+          concept: "Current model-bound symbolic system draft",
+          solvingSteps: ["Write first-order conditions for the current model."],
+          focs: ["F(z,theta)=0"],
+          conditions: ["det(J)!=0"],
+          closedForm: "No closed-form equilibrium yet.",
+          derivation:
+            "This draft records the symbolic system but does not unlock property analysis.",
+          code: "print('manual review required')",
+          warnings: ["Not a solved closed-form equilibrium."],
+        },
+      },
+    ],
+  };
+
+  const nextProject = applyResearchAssetPatchToProject(project, patch, {
+    now: 1710000000002,
+  });
+  const flow = getResearchFlowState(nextProject);
+
+  assert.equal(nextProject.equilibriumResult?.status, "symbolic_failure");
+  assert.equal(nextProject.researchSession?.phase, "equilibrium");
+  assert.equal(
+    nextProject.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
+  assert.equal(flow.canAnalyzeProperties, false);
+  assert.equal(flow.canSolveEquilibrium, true);
 });
 
 test("rejecting a proposed asset patch records a version history event", () => {

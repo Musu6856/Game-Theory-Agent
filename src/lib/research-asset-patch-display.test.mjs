@@ -93,3 +93,22 @@ test("describes model symbol and assumption changes as user-facing actions", () 
     "新增假设：固定成本非负。"
   );
 });
+
+test("describes whole-equilibrium patches with the candidate status and closed form", () => {
+  const description = describeResearchAssetChange(
+    {
+      kind: "replace",
+      path: "equilibriumResult",
+      value: {
+        status: "solved",
+        concept: "Interior symbolic equilibrium",
+        closedForm: "\\tau_A^*=\\tau_B^*=1/q",
+      },
+    },
+    "equilibrium"
+  );
+
+  assert.match(description, /solved/);
+  assert.match(description, /Interior symbolic equilibrium/);
+  assert.match(description, /\\tau_A\^\*=\\tau_B\^\*=1\/q/);
+});

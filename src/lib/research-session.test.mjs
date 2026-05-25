@@ -640,6 +640,36 @@ test("does not allow property analysis before symbolic solving starts", () => {
   );
 });
 
+test("does not allow property analysis after a symbolic failure draft", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "research platform pricing",
+    now: 1710000000000,
+  });
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+  );
+  const symbolicFailureProject = {
+    ...confirmed,
+    equilibriumResult: {
+      status: "symbolic_failure",
+      concept: "Implicit symbolic system only",
+      solvingSteps: ["Write FOCs."],
+      focs: ["F(z,theta)=0"],
+      conditions: ["det(J)!=0"],
+      closedForm: "No closed-form equilibrium yet.",
+      derivation: "This is not usable for comparative statics.",
+      code: "",
+      warnings: ["Manual review required."],
+    },
+  };
+
+  assert.throws(
+    () => generatePropertyAnalysis(symbolicFailureProject),
+    /closed-form symbolic equilibrium/
+  );
+});
+
 test("normalizes legacy scaffolded equilibrium sessions back to solve readiness", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
@@ -689,4 +719,54 @@ test("normalizes legacy scaffolded equilibrium sessions back to solve readiness"
     )
   );
   assert.equal(legacy.researchSession?.phase, "equilibrium");
+});
+
+test("normalizes symbolic failure projects that were incorrectly advanced to analysis", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "research platform pricing",
+    now: 1710000000000,
+  });
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+  );
+  const staleAdvanced = {
+    ...confirmed,
+    equilibriumResult: {
+      status: "symbolic_failure",
+      concept: "Current model-bound symbolic system draft",
+      solvingSteps: ["Write FOCs."],
+      focs: ["F(z,theta)=0"],
+      conditions: ["det(J)!=0"],
+      closedForm: "No closed-form equilibrium yet.",
+      derivation: "This draft must not unlock property analysis.",
+      code: "",
+      warnings: ["Manual review required."],
+    },
+    researchSession: {
+      ...confirmed.researchSession,
+      phase: "analysis",
+      assetSummary: {
+        ...confirmed.researchSession.assetSummary,
+        equilibriumStatus: "symbolic_failure",
+        pendingDecision: {
+          kind: "analyze_properties",
+          prompt: "Incorrectly advanced to property analysis.",
+        },
+        nextActions: ["Generate property analysis"],
+      },
+    },
+  };
+
+  const normalized = normalizeResearchProjectForWorkspace(staleAdvanced);
+
+  assert.equal(normalized.researchSession?.phase, "equilibrium");
+  assert.equal(
+    normalized.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
+  assert.match(
+    normalized.researchSession?.assetSummary.pendingDecision?.prompt ?? "",
+    /闭式解|符号均衡/
+  );
 });

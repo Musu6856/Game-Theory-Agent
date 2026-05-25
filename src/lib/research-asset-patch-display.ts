@@ -202,11 +202,33 @@ export function formatPatchValuePreview(change: ResearchAssetChange) {
   if (change.kind === "remove" || change.value === undefined) return "";
   if (typeof change.value === "string") return change.value;
   if (isRecord(change.value)) {
+    const equilibriumPreview = formatEquilibriumValuePreview(change.value);
+    if (equilibriumPreview) return equilibriumPreview;
+
     const symbol = typeof change.value.symbol === "string" ? change.value.symbol : "";
     const name = typeof change.value.name === "string" ? change.value.name : "";
     return [symbol, name].filter(Boolean).join(" - ");
   }
   return "";
+}
+
+function formatEquilibriumValuePreview(value: Record<string, unknown>) {
+  const status = typeof value.status === "string" ? value.status : "";
+  const concept = typeof value.concept === "string" ? value.concept : "";
+  const closedForm =
+    typeof value.closedForm === "string" ? value.closedForm : "";
+
+  if (!status && !concept && !closedForm) return "";
+
+  return [status, concept, closedForm]
+    .filter(Boolean)
+    .map((item) => truncatePreview(item))
+    .join(" - ");
+}
+
+function truncatePreview(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
