@@ -20,10 +20,30 @@ export type SympyDerivativeCheckResult = {
   difference?: string;
 };
 
+export type SympyResidualCheckRequest = {
+  residuals: string[];
+  substitutions: Record<string, string>;
+  pythonCommand?: string;
+  timeoutMs?: number;
+  maxInputLength?: number;
+};
+
+export type SympyResidualCheckResult = {
+  ok: boolean;
+  status: MathVerificationCheck["status"];
+  message: string;
+  residuals?: string[];
+};
+
 type SympyPayload = {
   expression: string;
   parameter: string;
   claimedDerivative: string;
+};
+
+type SympyResidualPayload = {
+  residuals: string[];
+  substitutions: Record<string, string>;
 };
 
 type PythonSympyResult = {
@@ -31,6 +51,7 @@ type PythonSympyResult = {
   expected?: string;
   claimed?: string;
   difference?: string;
+  residuals?: string[];
   error?: string;
 };
 
@@ -91,6 +112,62 @@ except Exception as exc:
     sys.exit(1)
 `;
 
+const SYMPY_RESIDUAL_SCRIPT = `
+import json
+import re
+import sys
+
+try:
+    import sympy as sp
+except Exception as exc:
+    print(json.dumps({"error": "sympy_import_failed: " + str(exc)}, ensure_ascii=False))
+    sys.exit(2)
+
+SAFE_RE = re.compile(r"^[A-Za-z0-9_+\\-*/().,\\s^]+$")
+
+def normalize(value):
+    return str(value).replace("^", "**").strip()
+
+def parse_expr(value, local_dict):
+    normalized = normalize(value)
+    if not SAFE_RE.match(normalized):
+        raise ValueError("unsafe expression")
+    return sp.sympify(normalized, locals=local_dict)
+
+try:
+    payload = json.loads(sys.stdin.read())
+    residual_texts = [normalize(value) for value in payload.get("residuals", [])]
+    substitutions_text = {
+        normalize(key): normalize(value)
+        for key, value in payload.get("substitutions", {}).items()
+    }
+    combined = " ".join(
+        residual_texts + list(substitutions_text.keys()) + list(substitutions_text.values())
+    )
+    names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", combined))
+    names.discard("sqrt")
+    local_dict = {name: sp.symbols(name, real=True) for name in names}
+    local_dict["sqrt"] = sp.sqrt
+
+    substitutions = {
+        local_dict[name]: parse_expr(value, local_dict)
+        for name, value in substitutions_text.items()
+        if name in local_dict
+    }
+    residuals = []
+    ok = True
+    for residual_text in residual_texts:
+        residual = sp.simplify(parse_expr(residual_text, local_dict).subs(substitutions))
+        residuals.append(str(residual))
+        if residual != 0:
+            ok = False
+
+    print(json.dumps({"ok": bool(ok), "residuals": residuals}, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+    sys.exit(1)
+`;
+
 export async function runSympyDerivativeCheck({
   expression,
   parameter,
@@ -114,6 +191,33 @@ export async function runSympyDerivativeCheck({
   }
 
   return executeSympyDerivativeScript({
+    payload,
+    pythonCommand,
+    timeoutMs,
+  });
+}
+
+export async function runSympyResidualCheck({
+  residuals,
+  substitutions,
+  pythonCommand = process.env.PAPERFORGE_SYMPY_PYTHON ?? "python",
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  maxInputLength = DEFAULT_MAX_INPUT_LENGTH,
+}: SympyResidualCheckRequest): Promise<SympyResidualCheckResult> {
+  const payload = normalizeResidualPayload({
+    residuals,
+    substitutions,
+  });
+  const validationError = validateResidualPayload(payload, maxInputLength);
+  if (validationError) {
+    return {
+      ok: true,
+      status: "unsupported",
+      message: validationError,
+    };
+  }
+
+  return executeSympyResidualScript({
     payload,
     pythonCommand,
     timeoutMs,
@@ -168,6 +272,20 @@ function normalizeSympyPayload(payload: SympyPayload): SympyPayload {
   };
 }
 
+function normalizeResidualPayload(
+  payload: SympyResidualPayload
+): SympyResidualPayload {
+  return {
+    residuals: payload.residuals.map(normalizeExpressionForSympy),
+    substitutions: Object.fromEntries(
+      Object.entries(payload.substitutions).map(([key, value]) => [
+        normalizeExpressionForSympy(key),
+        normalizeExpressionForSympy(value),
+      ])
+    ),
+  };
+}
+
 function validatePayload(payload: SympyPayload, maxInputLength: number) {
   const values = [
     payload.expression,
@@ -185,6 +303,35 @@ function validatePayload(payload: SympyPayload, maxInputLength: number) {
 
   if (values.some((value) => !SAFE_SYMPY_INPUT_PATTERN.test(value))) {
     return "SymPy 复算输入包含暂不支持的符号，已转入人工复核。";
+  }
+
+  return "";
+}
+
+function validateResidualPayload(
+  payload: SympyResidualPayload,
+  maxInputLength: number
+) {
+  const values = [
+    ...payload.residuals,
+    ...Object.keys(payload.substitutions),
+    ...Object.values(payload.substitutions),
+  ];
+
+  if (
+    payload.residuals.length === 0 ||
+    Object.keys(payload.substitutions).length === 0 ||
+    values.some((value) => value.length === 0)
+  ) {
+    return "SymPy 残差复算缺少 FOC 残差或闭式解代入项，已转入人工复核。";
+  }
+
+  if (values.some((value) => value.length > maxInputLength)) {
+    return "SymPy 残差复算输入过长，已转入人工复核。";
+  }
+
+  if (values.some((value) => !SAFE_SYMPY_INPUT_PATTERN.test(value))) {
+    return "SymPy 残差复算输入包含暂不支持的符号，已转入人工复核。";
   }
 
   return "";
@@ -272,6 +419,91 @@ function executeSympyDerivativeScript({
         claimed: parsed.claimed,
         difference: parsed.difference,
         message: `SymPy 复算不一致：系统复算结果为 ${parsed.expected}，候选写成 ${parsed.claimed}。`,
+      });
+    });
+
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+function executeSympyResidualScript({
+  payload,
+  pythonCommand,
+  timeoutMs,
+}: {
+  payload: SympyResidualPayload;
+  pythonCommand: string;
+  timeoutMs: number;
+}) {
+  return new Promise<SympyResidualCheckResult>((resolve) => {
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+    const timeoutRef: { timer?: ReturnType<typeof setTimeout> } = {};
+    const child = spawn(pythonCommand, ["-c", SYMPY_RESIDUAL_SCRIPT], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    const finish = (result: SympyResidualCheckResult) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutRef.timer) clearTimeout(timeoutRef.timer);
+      resolve(result);
+    };
+
+    timeoutRef.timer = setTimeout(() => {
+      child.kill();
+      finish({
+        ok: true,
+        status: "manual_review",
+        message: "SymPy 残差复算超时，已转入人工复核。",
+      });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      finish({
+        ok: true,
+        status: "manual_review",
+        message: `SymPy 运行时不可用，已转入人工复核：${error.message}`,
+      });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+
+      const parsed = parsePythonResult(stdout);
+      if (!parsed || parsed.error || code !== 0) {
+        finish({
+          ok: true,
+          status: "manual_review",
+          message: `SymPy 残差复算暂不可用，已转入人工复核：${
+            parsed?.error ?? stderr.trim() ?? `退出码 ${code}`
+          }`,
+        });
+        return;
+      }
+
+      if (parsed.ok) {
+        finish({
+          ok: true,
+          status: "passed",
+          residuals: parsed.residuals,
+          message: "SymPy 残差复算通过：闭式解代回可执行 FOC 后残差为 0。",
+        });
+        return;
+      }
+
+      finish({
+        ok: false,
+        status: "failed",
+        residuals: parsed.residuals,
+        message: `SymPy 残差复算不一致：闭式解代回 FOC 后残差为 ${(parsed.residuals ?? []).join("、")}。`,
       });
     });
 

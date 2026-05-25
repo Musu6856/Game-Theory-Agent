@@ -27,6 +27,7 @@ import {
   updateStepStatus,
   type AgentRun,
 } from "./state.ts";
+import { reviewEquilibriumWithSympy } from "./sympy-equilibrium-review.ts";
 import { appendAgentRunToProject } from "./trace.ts";
 
 export type EquilibriumSolvingAgentRequest = {
@@ -164,7 +165,7 @@ export async function runEquilibriumSolvingAgent(
   agentRun = updateStepStatus(agentRun, "draft-equilibrium", "completed", now);
 
   agentRun = updateStepStatus(agentRun, "review-equilibrium", "running", now);
-  let review = reviewEquilibriumCandidate(
+  let review = await reviewEquilibriumCandidate(
     candidateEquilibrium,
     request.project
   );
@@ -195,7 +196,7 @@ export async function runEquilibriumSolvingAgent(
     const repairedEquilibrium = repairResult.project.equilibriumResult;
 
     if (repairedEquilibrium) {
-      const repairReview = reviewEquilibriumCandidate(
+      const repairReview = await reviewEquilibriumCandidate(
         repairedEquilibrium,
         request.project
       );
@@ -294,7 +295,7 @@ export async function runEquilibriumSolvingAgent(
   };
 }
 
-function reviewEquilibriumCandidate(
+async function reviewEquilibriumCandidate(
   equilibrium: EquilibriumResult,
   project: ResearchProject
 ) {
@@ -325,6 +326,10 @@ function reviewEquilibriumCandidate(
       model: project.hotellingModel,
       equilibrium,
     }).issues
+  );
+
+  issues.push(
+    ...(await reviewEquilibriumWithSympy({ equilibrium })).issues
   );
 
   return {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { runEquilibriumSolvingAgent } from "./equilibrium-runner.ts";
@@ -10,6 +11,11 @@ import {
 } from "../research-session.ts";
 import { createAgentRun, updateStepStatus } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
+
+const hasLocalSympy =
+  spawnSync("python", ["-c", "import sympy"], {
+    encoding: "utf8",
+  }).status === 0;
 
 function createConfirmedProject() {
   const project = createExplorationProject({
@@ -508,3 +514,85 @@ test("equilibrium solving agent repairs candidates with ungrounded math symbols"
     true
   );
 });
+
+test(
+  "equilibrium solving agent repairs candidates whose closed form fails SymPy FOC residual checks",
+  { skip: !hasLocalSympy },
+  async () => {
+    const project = createConfirmedProject();
+    const riskyEquilibrium = {
+      status: "solved",
+      concept: "错误闭式解",
+      solvingSteps: ["写出 FOC", "联立求解"],
+      focs: ["2*tau_A - alpha_B = 0"],
+      conditions: ["alpha_B > 0"],
+      closedForm: "tau_A^* = alpha_B/3",
+      derivation: "候选闭式解没有满足 FOC。",
+      code: "sp.solve([2*tau_A-alpha_B], [tau_A])",
+      warnings: [],
+    };
+    const repairedEquilibrium = {
+      ...riskyEquilibrium,
+      concept: "修复后的闭式解",
+      closedForm: "tau_A^* = alpha_B/2",
+      derivation: "将闭式解代回 FOC 后残差为 0。",
+    };
+    let attempts = 0;
+
+    const result = await runEquilibriumSolvingAgent(
+      {
+        rawIdea: project.rawIdea,
+        project,
+      },
+      {
+        id: "equilibrium-agent-sympy-residual-repair-test",
+        now: 1710000000000,
+        solveEquilibrium: async () => {
+          attempts += 1;
+          const equilibrium =
+            attempts === 1 ? riskyEquilibrium : repairedEquilibrium;
+          return {
+            project: {
+              ...project,
+              equilibriumResult: equilibrium,
+              researchSession: {
+                ...project.researchSession,
+                phase: "equilibrium",
+                assetSummary: {
+                  ...project.researchSession?.assetSummary,
+                  confirmedAssumptions:
+                    project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                  utilityFunctions:
+                    project.researchSession?.assetSummary.utilityFunctions ?? [],
+                  equilibriumStatus: equilibrium.status,
+                  nextActions: ["检查符号均衡推导", "生成性质分析"],
+                  pendingDecision: {
+                    kind: "analyze_properties",
+                    prompt: "符号均衡结果已经生成。",
+                  },
+                },
+                messages: project.researchSession?.messages ?? [],
+              },
+            },
+            usedFallback: false,
+            assistantMessage: "均衡候选。",
+          };
+        },
+      }
+    );
+
+    const patch = result.project.researchSession?.assetPatches?.[0];
+    const equilibriumChange = patch?.changes.find(
+      (change) => change.path === "equilibriumResult"
+    );
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(equilibriumChange?.value, repairedEquilibrium);
+    assert.equal(
+      result.agentRun.trace.some((event) =>
+        String(event.metadata?.issues ?? "").includes("SymPy")
+      ),
+      true
+    );
+  }
+);
