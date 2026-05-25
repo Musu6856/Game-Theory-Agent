@@ -433,6 +433,12 @@ export function createConversationFallbackAssetPatch(
 ): ResearchAssetPatch | null {
   if (!project.hotellingModel) return null;
 
+  const affirmedModelProposalPatch = createAffirmedModelProposalPatch(
+    project,
+    userMessage
+  );
+  if (affirmedModelProposalPatch) return affirmedModelProposalPatch;
+
   const confirmedRepairPatch = createConfirmedRepairProposalPatch(
     project,
     userMessage
@@ -527,6 +533,163 @@ export function createConversationFallbackAssetPatch(
   }
 
   return null;
+}
+
+function createAffirmedModelProposalPatch(
+  project: ResearchProject,
+  userMessage: string
+): ResearchAssetPatch | null {
+  const model = project.hotellingModel;
+  if (!model || !isAffirmativeConversationConfirmation(userMessage)) {
+    return null;
+  }
+
+  const proposal = findRecentAssistantModelProposal(project);
+  if (!proposal) return null;
+
+  if (/多归属|multi[-\s]?homing|multihoming/i.test(proposal)) {
+    return createSellerMultihomingPatch(model);
+  }
+
+  return null;
+}
+
+function isAffirmativeConversationConfirmation(userMessage: string) {
+  const text = userMessage.trim().toLowerCase();
+  if (!text) return false;
+  if (/(不接受|先不|不要|拒绝|取消|算了)/.test(text)) return false;
+
+  return (
+    /^(确认|接受|同意|可以|好的|好|行|按这个|就这样|采纳|应用|批准)[。！？!?\s]*$/.test(
+      text
+    ) ||
+    /(确认|接受|同意|按这个|就这样|采纳|应用|批准).{0,12}(修改|方案|方向|模型|写入|处理|执行|生成|更新|应用)?/.test(
+      text
+    )
+  );
+}
+
+function findRecentAssistantModelProposal(project: ResearchProject) {
+  const messages = project.researchSession?.messages ?? [];
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") continue;
+
+    const content = message.content.trim();
+    if (!content) continue;
+
+    const asksForAcceptance = /(是否接受|是否确认|如果你确认|如果确认|确认这个|接受这个|下一步)/.test(
+      content
+    );
+    const hasModelProposal = /(模型|设定|效用函数|需求推导|利润函数|符号|均衡)/.test(
+      content
+    );
+
+    if (asksForAcceptance && hasModelProposal) return content;
+  }
+
+  return null;
+}
+
+function createSellerMultihomingPatch(
+  model: HotellingModel
+): ResearchAssetPatch {
+  const changes: ResearchAssetPatch["changes"] = [];
+  const multihomingAssumption =
+    "买家仍保持单归属，卖家可以选择只加入平台 A、只加入平台 B 或同时加入两个平台。";
+  const singleHomingIndex = model.assumptions.findIndex(
+    (assumption) => /买家.*卖家.*单归属|卖家.*单归属/.test(assumption)
+  );
+
+  changes.push({
+    target:
+      singleHomingIndex >= 0
+        ? `hotellingModel.assumptions[${singleHomingIndex}]`
+        : "hotellingModel.assumptions",
+    op: singleHomingIndex >= 0 ? "set" : "insert",
+    value: multihomingAssumption,
+    reason: "用户确认采用卖家多归属扩展。",
+  });
+
+  if (
+    !model.symbols.some(
+      (symbol) =>
+        symbol.codeName === "n_AB_S" || symbol.symbol === "n_{AB}^S"
+    )
+  ) {
+    changes.push({
+      target: "hotellingModel.symbols",
+      op: "insert",
+      value: {
+        id: "symbol-n-ab-s",
+        symbol: "n_{AB}^S",
+        baseSymbol: "n",
+        subscript: "AB",
+        superscript: "S",
+        codeName: "n_AB_S",
+        name: "双归属卖家规模",
+        meaning: "同时加入平台 A 和平台 B 的卖家数量或份额。",
+        role: "demand",
+        side: "merchant",
+        assumption: "0 <= n_{AB}^S <= 1",
+        recommended: true,
+      },
+      reason: "卖家多归属模型需要记录同时加入两个平台的卖家规模。",
+    });
+  }
+
+  if (
+    !model.utilityFunctions.some((utility) => utility.id === "u-seller-ab")
+  ) {
+    changes.push({
+      target: "hotellingModel.utilityFunctions",
+      op: "insert",
+      value: {
+        id: "u-seller-ab",
+        side: "merchant",
+        platform: "AB",
+        expression:
+          "U_{AB}^S = v_S + \\alpha_S (n_A^B + n_B^B) - (\\tau_A + \\tau_B) q - t_S",
+        notes:
+          "卖家同时加入两个平台的效用；运输或运营成本先以线性叠加形式保留，后续可再细化为独立多归属成本。",
+      },
+      reason: "用户确认引入卖家同时加入两个平台的效用。",
+    });
+  }
+
+  changes.push({
+    target: "hotellingModel.demandDerivation",
+    op: "set",
+    value: appendUniqueParagraphs(model.demandDerivation, [
+      "卖家多归属扩展：买家仍满足 n_A^B+n_B^B=1；卖家可只加入 A、只加入 B 或同时加入两边，因此总卖家规模满足 n_A^S+n_B^S-n_{AB}^S=1。后续求解应比较 U_A^S、U_B^S 与 U_{AB}^S 的参与剩余，再把对应的卖家规模代入平台利润函数。",
+    ]),
+    reason: "把已确认的多归属参与条件写入需求推导，避免后续均衡仍按单归属求解。",
+  });
+
+  changes.push({
+    target: "hotellingModel.modelSetupDraft",
+    op: "set",
+    value: appendUniqueParagraphs(model.modelSetupDraft, [
+      "用户已确认采用卖家多归属扩展：卖家可以同时加入两个平台，买家暂保持单归属。模型需要显式跟踪 n_A^S、n_B^S 与 n_{AB}^S，并在均衡求解前说明当前使用的是完整多归属系统还是收窄后的活跃多归属区域。",
+    ]),
+    reason: "把聊天中确认的模型扩展同步到结构化模型摘要。",
+  });
+
+  return {
+    kind: "update_model",
+    summary: "应用卖家多归属模型扩展",
+    changes,
+  };
+}
+
+function appendUniqueParagraphs(base: string, paragraphs: string[]) {
+  const additions = paragraphs
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph && !base.includes(paragraph));
+  if (additions.length === 0) return base;
+
+  return [base.trim(), ...additions].filter(Boolean).join("\n\n");
 }
 
 function findSymbolByNotation(

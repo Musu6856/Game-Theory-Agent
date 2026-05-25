@@ -1055,6 +1055,70 @@ test("conversation fallback returns a direct model patch for explicit symbol edi
   assert.match(result.assistantMessage, /右侧|待应用|应用/);
 });
 
+test("conversation confirmation creates a pending patch when provider omits assetPatch", async () => {
+  const project = confirmResearchModel(
+    adoptResearchDirection(
+      createExplorationProject({
+        id: "11111111-1111-4111-8111-111111111111",
+        rawIdea: "Research platform pricing",
+        now: 1710000000000,
+      }),
+      "secondhand-commission-subsidy-hotelling"
+    )
+  );
+  const proposalMessage = [
+    "好的，我们来将模型扩展为多归属设定。",
+    "允许卖家多归属，而买家仍保持单归属。",
+    "需要调整模型设定、符号、效用函数、需求推导和利润函数。",
+    "如果你确认这个多归属设定，我将生成完整的符号模型。是否接受这个方向？",
+  ].join("\n");
+  const projectWithProposal = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      messages: [
+        ...(project.researchSession?.messages ?? []),
+        {
+          id: "msg-multihoming-proposal",
+          role: "assistant",
+          content: proposalMessage,
+          createdAt: 0,
+        },
+      ],
+    },
+  };
+
+  const result = await generateResearchProject(
+    {
+      action: "continue_conversation",
+      rawIdea: project.rawIdea,
+      userMessage: "接受",
+      project: projectWithProposal,
+    },
+    {
+      complete: async () =>
+        JSON.stringify({
+          assistantMessage:
+            "这些修改将作为待审核的变更出现在右侧。你可以查看并决定是否接受。",
+        }),
+    }
+  );
+
+  assert.equal(result.assetPatch?.kind, "update_model");
+  assert.equal(result.assetPatch?.summary, "应用卖家多归属模型扩展");
+  assert.ok(
+    result.assetPatch?.changes.some(
+      (change) => change.target === "hotellingModel.symbols"
+    )
+  );
+  assert.ok(
+    result.assetPatch?.changes.some(
+      (change) => change.target === "hotellingModel.utilityFunctions"
+    )
+  );
+  assert.match(result.assistantMessage, /右侧|待应用|应用/);
+});
+
 test("build fallback can recover model phase from a project without directions", async () => {
   const project = {
     ...createExplorationProject({
