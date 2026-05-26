@@ -18,6 +18,11 @@ export type MathVerificationSummary = {
   checks: MathVerificationCheck[];
 };
 
+export type MathVerificationActionHint = {
+  title: string;
+  body: string;
+};
+
 export function selectMathVerificationPanelChecks(
   summary: Pick<MathVerificationSummary, "checks">,
   { compact = false }: { compact?: boolean } = {}
@@ -76,6 +81,54 @@ export function buildProjectMathVerificationSummary(
     checkCounts,
     checks: checksWithPersisted,
   };
+}
+
+export function getMathVerificationActionHints(
+  summary: Pick<MathVerificationSummary, "status" | "checkCounts">
+): MathVerificationActionHint[] {
+  const hints: MathVerificationActionHint[] = [];
+
+  if (
+    summary.status === "failed" &&
+    (summary.checkCounts.failed > 0 ||
+      summary.checkCounts.condition_insufficient > 0)
+  ) {
+    hints.push({
+      title: "需修正",
+      body:
+        "回到模型、均衡或性质分析里看对应检查说明；让 AI 生成修复时，只应用右侧出现的修改建议，不要把失败草稿直接覆盖成正式资产。",
+    });
+  }
+
+  if (summary.checkCounts.condition_insufficient > 0) {
+    hints.push({
+      title: "条件不足",
+      body:
+        "补齐参数正负、取值区间或内点条件后再重跑；如果条件来自论文假设，优先在模型设定或均衡存在条件里补充。",
+    });
+  }
+
+  if (
+    summary.status === "review_needed" ||
+    summary.checkCounts.unsupported > 0 ||
+    summary.checkCounts.manual_review > 0
+  ) {
+    hints.push({
+      title: "人工复核",
+      body:
+        "展开下方复核说明，看系统跳过或不敢自动判定的公式；如果数学关系看起来合理，可以继续推进，否则先让 AI 按这条说明生成修复建议。",
+    });
+  }
+
+  if (summary.status === "passed") {
+    hints.push({
+      title: "可继续推进",
+      body:
+        "自动检查暂未发现阻塞项，可以继续求解、分析性质或整理论文草稿；核心资产仍以右侧待审核修改建议为准。",
+    });
+  }
+
+  return hints;
 }
 
 function getSummaryStatus(

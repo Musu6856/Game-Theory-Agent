@@ -22,6 +22,35 @@ test("markdown renderer preserves existing math delimiters", () => {
   );
 });
 
+test("markdown renderer preserves display math blocks without nested inline math", () => {
+  const content = [
+    "闭式解如下：",
+    "",
+    "$$",
+    "\\tau_A^*=\\frac{t_S-2\\alpha_B}{q}",
+    "$$",
+    "",
+    "其中 q>0。",
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(content);
+
+  assert.equal(
+    normalized,
+    [
+      "闭式解如下：",
+      "",
+      "$$",
+      "\\tau_A^*=\\frac{t_S-2\\alpha_B}{q}",
+      "$$",
+      "",
+      "其中 q>0。",
+    ].join("\n")
+  );
+  assert.doesNotMatch(normalized, /\$\s*\$\\tau_A/);
+  assert.doesNotMatch(normalized, /\\tau_A\^\*=\$\\frac/);
+});
+
 test("markdown renderer leaves ordinary markdown and Chinese text untouched", () => {
   const content = "**命题**：网络效应增强会提高用户粘性。";
 

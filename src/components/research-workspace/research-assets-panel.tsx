@@ -49,6 +49,7 @@ import {
 } from "@/lib/research-agent/version-review-summary";
 import {
   buildProjectMathVerificationSummary,
+  getMathVerificationActionHints,
   selectMathVerificationPanelChecks,
   type MathVerificationSummary,
   type MathVerificationSummaryStatus,
@@ -194,6 +195,7 @@ function ResearchAssetsPanelContent({
     hotellingModel: project?.hotellingModel,
     equilibriumResult: project?.equilibriumResult,
     propertyAnalyses: project?.propertyAnalyses,
+    researchSession: project?.researchSession,
   });
   const isSymbolicFailure = equilibrium?.status === "symbolic_failure";
   const hasThinAnalysis = analyses.length > 0 && analyses.length < 3;
@@ -377,6 +379,7 @@ function ResearchAssetsPanelContent({
             isSolvingEquilibrium={isSolvingEquilibrium}
             onSolveEquilibrium={onSolveEquilibrium}
             mathSummary={mathSummary}
+            onSelectAssetTab={setActiveTab}
             pendingEquilibriumCandidate={pendingEquilibriumCandidate}
             mathArtifacts={equilibriumMathArtifacts}
           />
@@ -392,6 +395,7 @@ function ResearchAssetsPanelContent({
             isAnalyzingProperties={isAnalyzingProperties}
             onAnalyzeProperties={onAnalyzeProperties}
             mathSummary={mathSummary}
+            onSelectAssetTab={setActiveTab}
           />
         ) : null}
 
@@ -424,6 +428,7 @@ function ResearchAssetsPanelContent({
             isPropertyAnalysisStale={flow.isPropertyAnalysisStale}
             mathSummary={mathSummary}
             mathArtifacts={equilibriumMathArtifacts}
+            onSelectAssetTab={setActiveTab}
           />
         ) : null}
 
@@ -1498,6 +1503,7 @@ function EquilibriumTab({
   isSolvingEquilibrium,
   onSolveEquilibrium,
   mathSummary,
+  onSelectAssetTab,
 }: {
   equilibriumStatusLabel: string;
   equilibrium?: ResearchProject["equilibriumResult"];
@@ -1508,6 +1514,7 @@ function EquilibriumTab({
   isSolvingEquilibrium?: boolean;
   onSolveEquilibrium?: () => void;
   mathSummary: MathVerificationSummary;
+  onSelectAssetTab?: (tab: ResearchAssetsTab) => void;
 }) {
   const displayedEquilibrium = pendingEquilibriumCandidate ?? equilibrium;
   const displayedIsSymbolicFailure =
@@ -1615,7 +1622,11 @@ function EquilibriumTab({
         <EmptyLine text="确认模型后，可以在这里生成并检查符号均衡。" />
       )}
 
-      <MathVerificationSummaryPanel summary={mathSummary} compact />
+      <MathVerificationSummaryPanel
+        summary={mathSummary}
+        compact
+        onSelectAssetTab={onSelectAssetTab}
+      />
 
       <MathArtifactsPanel artifacts={mathArtifacts} />
     </div>
@@ -1631,6 +1642,7 @@ function PropertiesTab({
   isAnalyzingProperties,
   onAnalyzeProperties,
   mathSummary,
+  onSelectAssetTab,
 }: {
   analyses: NonNullable<ResearchProject["propertyAnalyses"]>;
   analysisStatusLabel: string;
@@ -1640,6 +1652,7 @@ function PropertiesTab({
   isAnalyzingProperties?: boolean;
   onAnalyzeProperties?: () => void;
   mathSummary: MathVerificationSummary;
+  onSelectAssetTab?: (tab: ResearchAssetsTab) => void;
 }) {
   const primaryAction = getResearchPrimaryAction(
     {
@@ -1672,7 +1685,11 @@ function PropertiesTab({
         onAction={onAnalyzeProperties}
       />
 
-      <MathVerificationSummaryPanel summary={mathSummary} compact />
+      <MathVerificationSummaryPanel
+        summary={mathSummary}
+        compact
+        onSelectAssetTab={onSelectAssetTab}
+      />
 
       {analyses.length > 0 ? (
         <div className="space-y-3">
@@ -1841,6 +1858,7 @@ function QualityTab({
   isPropertyAnalysisStale,
   mathSummary,
   mathArtifacts,
+  onSelectAssetTab,
 }: {
   session: ResearchSession;
   equilibrium?: ResearchProject["equilibriumResult"];
@@ -1851,6 +1869,7 @@ function QualityTab({
   isPropertyAnalysisStale: boolean;
   mathSummary: MathVerificationSummary;
   mathArtifacts: NonNullable<ResearchSession["mathArtifacts"]>;
+  onSelectAssetTab?: (tab: ResearchAssetsTab) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -1876,7 +1895,10 @@ function QualityTab({
         </div>
       </AssetSection>
 
-      <MathVerificationSummaryPanel summary={mathSummary} />
+      <MathVerificationSummaryPanel
+        summary={mathSummary}
+        onSelectAssetTab={onSelectAssetTab}
+      />
 
       <MathArtifactsPanel artifacts={mathArtifacts} />
 
@@ -2043,15 +2065,21 @@ function OrderedList({ items }: { items: string[] }) {
 function MathVerificationSummaryPanel({
   summary,
   compact = false,
+  onSelectAssetTab,
 }: {
   summary: MathVerificationSummary;
   compact?: boolean;
+  onSelectAssetTab?: (tab: ResearchAssetsTab) => void;
 }) {
   const visibleIssues = summary.issues.slice(0, compact ? 2 : 4);
   const visibleChecks = selectMathVerificationPanelChecks(summary, {
     compact,
   });
+  const actionHints = getMathVerificationActionHints(summary);
   const hasReviewDetails = visibleIssues.length > 0 || visibleChecks.length > 0;
+  const showReviewShortcuts =
+    Boolean(onSelectAssetTab) &&
+    (summary.status === "failed" || summary.status === "review_needed");
   const reviewDetails = (
     <>
       {visibleIssues.length > 0 ? (
@@ -2102,6 +2130,53 @@ function MathVerificationSummaryPanel({
         <p className="mt-3 font-medium text-foreground">
           建议下一步：{summary.nextAction}
         </p>
+        {actionHints.length > 0 ? (
+          <div className="mt-3 border-t pt-3">
+            <p className="text-[11px] font-semibold text-foreground">处理方式</p>
+            <ul className="mt-2 space-y-1.5 text-muted-foreground">
+              {actionHints.map((hint) => (
+                <li key={hint.title} className="leading-5">
+                  <span className="font-medium text-foreground">{hint.title}：</span>
+                  {hint.body}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {showReviewShortcuts ? (
+          <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-[11px]"
+              onClick={() => onSelectAssetTab?.("model")}
+            >
+              <ExternalLink className="size-3" />
+              模型设定
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-[11px]"
+              onClick={() => onSelectAssetTab?.("equilibrium")}
+            >
+              <Sigma className="size-3" />
+              符号均衡
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-[11px]"
+              onClick={() => onSelectAssetTab?.("properties")}
+            >
+              <FileText className="size-3" />
+              性质分析
+            </Button>
+          </div>
+        ) : null}
         {hasReviewDetails && compact ? (
           <details className="mt-2 rounded-sm bg-muted/35 px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">

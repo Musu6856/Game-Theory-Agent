@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildProjectMathVerificationSummary,
+  getMathVerificationActionHints,
   selectMathVerificationPanelChecks,
 } from "./math-verification-summary.ts";
 
@@ -125,6 +126,36 @@ test("reports condition-insufficient checks as failed release blockers", () => {
   assert.match(summary.headline, /数学复核问题/);
 });
 
+test("explains actionable next steps for failed and manual-review math states", () => {
+  const failedHints = getMathVerificationActionHints({
+    status: "failed",
+    checkCounts: {
+      passed: 1,
+      failed: 1,
+      condition_insufficient: 1,
+      unsupported: 0,
+      manual_review: 0,
+    },
+  });
+  const manualReviewHints = getMathVerificationActionHints({
+    status: "review_needed",
+    checkCounts: {
+      passed: 2,
+      failed: 0,
+      condition_insufficient: 0,
+      unsupported: 1,
+      manual_review: 1,
+    },
+  });
+
+  assert.ok(failedHints.some((hint) => /需修正/.test(hint.title)));
+  assert.ok(failedHints.some((hint) => /回到模型、均衡或性质分析/.test(hint.body)));
+  assert.ok(failedHints.some((hint) => /修改建议/.test(hint.body)));
+  assert.ok(manualReviewHints.some((hint) => /人工复核/.test(hint.title)));
+  assert.ok(manualReviewHints.some((hint) => /展开/.test(hint.body)));
+  assert.ok(manualReviewHints.some((hint) => /继续推进/.test(hint.body)));
+});
+
 test("includes persisted async SymPy checks in the project summary", () => {
   const summary = buildProjectMathVerificationSummary({
     hotellingModel: createModel(),
@@ -165,6 +196,50 @@ test("includes persisted async SymPy checks in the project summary", () => {
   assert.ok(
     summary.checks.some((check) =>
       /alpha_B - 2\*tau_A/.test(check.message)
+    )
+  );
+});
+
+test("summarizes persisted manual-review checks as visible review work", () => {
+  const summary = buildProjectMathVerificationSummary({
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      status: "solved",
+      concept: "内点均衡",
+      solvingSteps: ["对 tau_A 求一阶条件"],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["q > 0"],
+      closedForm: "tau_A^*=2*alpha_B/q",
+      derivation: "由 FOC 得到 tau_A^*。",
+      code: "sp.solve([foc_tau_A], [tau_A])",
+      warnings: [],
+    },
+    propertyAnalyses: [],
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+      },
+      mathVerificationChecks: [
+        {
+          kind: "sympy_execution",
+          status: "manual_review",
+          message: "SymPy 独立求解暂不支持该系统，保留人工复核。",
+        },
+      ],
+    },
+  });
+
+  assert.equal(summary.status, "review_needed");
+  assert.equal(summary.checkCounts.manual_review, 1);
+  assert.ok(
+    selectMathVerificationPanelChecks(summary, { compact: false }).some(
+      (check) => /人工复核/.test(check.message)
     )
   );
 });
