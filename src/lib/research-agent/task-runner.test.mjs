@@ -222,6 +222,120 @@ test("runAgentTask records failure when execution throws", async () => {
   assert.equal(getLocalAgentTask("user-1", task.id)?.status, "failed");
 });
 
+test("runAgentTask retries transient project save failures", async () => {
+  clearLocalAgentTaskStore();
+  const task = createLocalAgentTask({
+    id: "task-run-retry-save",
+    ownerId: "user-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    action: "solve_equilibrium",
+    input: {
+      rawIdea: "test idea",
+      action: "solve_equilibrium",
+      projectId: "11111111-1111-4111-8111-111111111111",
+    },
+    now: 1710000000000,
+  });
+  let saveAttempts = 0;
+
+  const completed = await runAgentTask({
+    id: task.id,
+    ownerId: "user-1",
+    workerId: "worker-1",
+    now: 1710000001000,
+    leaseMs: 60_000,
+    forceLocal: true,
+    getProject: async () => ({
+      id: "11111111-1111-4111-8111-111111111111",
+      createdAt: 1710000000000,
+      rawIdea: "test idea",
+      refinedIdea: "test idea",
+      model: null,
+      wizardCompleted: false,
+      sections: [],
+      references: [],
+    }),
+    saveProject: async ({ project }) => {
+      saveAttempts += 1;
+      if (saveAttempts === 1) {
+        throw Object.assign(new Error("Failed query: update projects ..."), {
+          cause: Object.assign(
+            new Error("Error connecting to database: TypeError: fetch failed"),
+            {
+              sourceError: Object.assign(new Error("fetch failed"), {
+                cause: Object.assign(new Error("socket disconnected"), {
+                  code: "ECONNRESET",
+                }),
+              }),
+            }
+          ),
+        });
+      }
+      return project;
+    },
+    executeAction: async ({ project }) => ({
+      project: {
+        ...project,
+        refinedIdea: "saved after retry",
+      },
+    }),
+  });
+
+  assert.equal(completed.status, "completed");
+  assert.equal(saveAttempts, 2);
+  assert.equal(getLocalAgentTask("user-1", task.id)?.status, "completed");
+});
+
+test("runAgentTask stores concise project save failures", async () => {
+  clearLocalAgentTaskStore();
+  const task = createLocalAgentTask({
+    id: "task-run-concise-save-error",
+    ownerId: "user-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    action: "solve_equilibrium",
+    input: {
+      rawIdea: "test idea",
+      action: "solve_equilibrium",
+      projectId: "11111111-1111-4111-8111-111111111111",
+    },
+    now: 1710000000000,
+  });
+
+  const failed = await runAgentTask({
+    id: task.id,
+    ownerId: "user-1",
+    workerId: "worker-1",
+    now: 1710000001000,
+    leaseMs: 60_000,
+    forceLocal: true,
+    getProject: async () => ({
+      id: "11111111-1111-4111-8111-111111111111",
+      createdAt: 1710000000000,
+      rawIdea: "test idea",
+      refinedIdea: "test idea",
+      model: null,
+      wizardCompleted: false,
+      sections: [],
+      references: [],
+    }),
+    saveProject: async () => {
+      throw Object.assign(
+        new Error("Failed query: update projects ...\nparams: secret-value"),
+        {
+          cause: new Error("invalid input syntax for type json"),
+        }
+      );
+    },
+    executeAction: async ({ project }) => ({ project }),
+  });
+
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /Project save failed/);
+  assert.match(failed.error, /invalid input syntax for type json/);
+  assert.equal(failed.error.includes("params:"), false);
+  assert.equal(failed.error.includes("secret-value"), false);
+});
+
 test("runAgentTask records agent checkpoints during execution before later failure", async () => {
   clearLocalAgentTaskStore();
   const task = createLocalAgentTask({

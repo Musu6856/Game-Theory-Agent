@@ -55,6 +55,7 @@ export interface AgentTaskRunnerDependencies {
 }
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
+const PROJECT_SAVE_RETRY_DELAYS_MS = [0, 500];
 
 type ExecutableAgentTaskAction =
   | "build_model"
@@ -150,9 +151,21 @@ export async function runAgentTask({
         if (!renewed) return;
 
         progressProject = appendAgentRunToProject(progressProject, run);
-        await dependencies.saveProject({
-          ownerId,
-          project: progressProject,
+        await saveProjectWithRetry({
+          saveProject: dependencies.saveProject,
+          input: {
+            ownerId,
+            project: progressProject,
+          },
+          beforeRetry: () =>
+            renewProjectSaveLease({
+              id,
+              ownerId,
+              workerId,
+              leaseMs,
+              forceLocal,
+              hasLostLease: leaseRenewal.hasLostLease,
+            }),
         });
       },
       onMathArtifact: async (artifact) => {
@@ -177,9 +190,21 @@ export async function runAgentTask({
         if (!renewed) return;
 
         progressProject = appendMathArtifactToProject(progressProject, artifact);
-        await dependencies.saveProject({
-          ownerId,
-          project: progressProject,
+        await saveProjectWithRetry({
+          saveProject: dependencies.saveProject,
+          input: {
+            ownerId,
+            project: progressProject,
+          },
+          beforeRetry: () =>
+            renewProjectSaveLease({
+              id,
+              ownerId,
+              workerId,
+              leaseMs,
+              forceLocal,
+              hasLostLease: leaseRenewal.hasLostLease,
+            }),
         });
       },
     });
@@ -216,9 +241,21 @@ export async function runAgentTask({
       now: Date.now(),
       forceLocal,
     });
-    const savedProject = await dependencies.saveProject({
-      ownerId,
-      project: result.project,
+    const savedProject = await saveProjectWithRetry({
+      saveProject: dependencies.saveProject,
+      input: {
+        ownerId,
+        project: result.project,
+      },
+      beforeRetry: () =>
+        renewProjectSaveLease({
+          id,
+          ownerId,
+          workerId,
+          leaseMs,
+          forceLocal,
+          hasLostLease: leaseRenewal.hasLostLease,
+        }),
     });
     if (leaseRenewal.hasLostLease()) {
       return getCurrentTaskOrThrow({
@@ -261,7 +298,7 @@ export async function runAgentTask({
       id,
       ownerId,
       workerId,
-      error: error instanceof Error ? error.message : "Agent task failed",
+      error: summarizeAgentTaskFailure(error),
       now,
       forceLocal,
     });
@@ -638,6 +675,131 @@ async function getCurrentTaskOrThrow({
   const current = await getAgentTask(ownerId, id, { forceLocal });
   if (current) return current;
   throw new Error(message);
+}
+
+async function saveProjectWithRetry({
+  saveProject,
+  input,
+  beforeRetry,
+}: {
+  saveProject: AgentTaskRunnerDependencies["saveProject"];
+  input: Parameters<AgentTaskRunnerDependencies["saveProject"]>[0];
+  beforeRetry: () => Promise<boolean>;
+}) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= PROJECT_SAVE_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await saveProject(input);
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= PROJECT_SAVE_RETRY_DELAYS_MS.length ||
+        !isTransientProjectSaveError(error)
+      ) {
+        throw createProjectSaveFailureError(error);
+      }
+
+      const canContinue = await beforeRetry();
+      if (!canContinue) throw createProjectSaveFailureError(error);
+
+      const delayMs = PROJECT_SAVE_RETRY_DELAYS_MS[attempt];
+      if (delayMs > 0) await delay(delayMs);
+    }
+  }
+
+  throw createProjectSaveFailureError(lastError);
+}
+
+async function renewProjectSaveLease({
+  id,
+  ownerId,
+  workerId,
+  leaseMs,
+  forceLocal,
+  hasLostLease,
+}: {
+  id: string;
+  ownerId: string;
+  workerId: string;
+  leaseMs: number;
+  forceLocal?: boolean;
+  hasLostLease: () => boolean;
+}) {
+  if (hasLostLease()) return false;
+  const renewed = await renewCurrentWorkerLease({
+    id,
+    ownerId,
+    workerId,
+    leaseMs,
+    forceLocal,
+  });
+  return Boolean(renewed) && !hasLostLease();
+}
+
+function createProjectSaveFailureError(error: unknown) {
+  return new Error(`Project save failed: ${summarizeErrorChain(error)}`, {
+    cause: error,
+  });
+}
+
+function summarizeAgentTaskFailure(error: unknown) {
+  return error instanceof Error ? error.message : "Agent task failed";
+}
+
+function isTransientProjectSaveError(error: unknown) {
+  const details = collectErrorDetails(error);
+  return details.some((detail) => {
+    const text = detail.toLowerCase();
+    return (
+      text.includes("fetch failed") ||
+      text.includes("econnreset") ||
+      text.includes("etimedout") ||
+      text.includes("eai_again") ||
+      text.includes("und_err_socket") ||
+      text.includes("socket disconnected") ||
+      text.includes("network socket") ||
+      text.includes("connection terminated") ||
+      text.includes("connection reset") ||
+      text.includes("timeout")
+    );
+  });
+}
+
+function summarizeErrorChain(error: unknown) {
+  const messages = collectErrorDetails(error)
+    .map(removeQueryParams)
+    .filter((message, index, list) => message && list.indexOf(message) === index);
+  return messages.slice(0, 3).join(" | ") || "unknown error";
+}
+
+function collectErrorDetails(error: unknown, seen = new Set<unknown>()): string[] {
+  if (!error || seen.has(error)) return [];
+  seen.add(error);
+
+  if (typeof error === "string") return [error];
+  if (typeof error !== "object") return [];
+
+  const record = error as Record<string, unknown>;
+  const details: string[] = [];
+  const message = record.message;
+  if (typeof message === "string" && message.trim()) details.push(message.trim());
+  const code = record.code;
+  if (typeof code === "string" && code.trim()) details.push(code.trim());
+
+  return [
+    ...details,
+    ...collectErrorDetails(record.cause, seen),
+    ...collectErrorDetails(record.sourceError, seen),
+  ];
+}
+
+function removeQueryParams(message: string) {
+  return message.split(/\nparams:/i)[0].trim();
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function startLeaseRenewal({
