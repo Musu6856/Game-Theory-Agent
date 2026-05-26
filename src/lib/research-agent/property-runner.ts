@@ -24,7 +24,8 @@ import {
 } from "./resume.ts";
 import {
   appendTraceEvent,
-  updateStepStatus,
+  updateStepStatusAndNotify,
+  type AgentCheckpointSink,
   type AgentRun,
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
@@ -41,6 +42,7 @@ export type PropertyAnalysisAgentClient = ResearchCompletionClient & {
     request: ResearchGenerationRequest,
     client: ResearchCompletionClient
   ) => Promise<ResearchGenerationResponse>;
+  onAgentCheckpoint?: AgentCheckpointSink;
 };
 
 export type PropertyAnalysisAgentResult = ResearchGenerationResponse & {
@@ -80,9 +82,58 @@ export async function runPropertyAnalysisAgent(
       now
     );
   }
+  const recordStepStatus = async (
+    stepId: string,
+    status: AgentRun["plan"][number]["status"],
+    metadata?: Record<string, unknown>
+  ) => {
+    agentRun = await updateStepStatusAndNotify(
+      agentRun,
+      stepId,
+      status,
+      now,
+      metadata,
+      client.onAgentCheckpoint
+    );
+  };
+
+  if (request.project.equilibriumResult?.status !== "solved") {
+    await recordStepStatus("prepare-properties", "running");
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "prepare-properties",
+        type: "fallback",
+        message:
+          "性质分析需要先应用 solved 状态的均衡结果，暂不生成候选。",
+        metadata: {
+          hasEquilibrium: Boolean(request.project.equilibriumResult),
+          equilibriumStatus: request.project.equilibriumResult?.status,
+        },
+      },
+      now
+    );
+    await recordStepStatus("prepare-properties", "failed");
+    agentRun = {
+      ...agentRun,
+      status: "failed",
+      currentStepId: undefined,
+      pauseReason:
+        "性质分析需要先应用 solved 状态的均衡 patch。",
+      completedAt: now,
+    };
+
+    return {
+      project: attachAgentRun(request.project, agentRun),
+      usedFallback: false,
+      assistantMessage:
+        "性质分析需要先应用 solved 状态的均衡 patch；我没有生成新的性质分析修改建议。",
+      agentRun,
+    };
+  }
 
   if (!shouldSkipCompletedStep(agentRun, "prepare-properties")) {
-    agentRun = updateStepStatus(agentRun, "prepare-properties", "running", now);
+    await recordStepStatus("prepare-properties", "running");
     agentRun = appendTraceEvent(
       agentRun,
       {
@@ -97,10 +148,10 @@ export async function runPropertyAnalysisAgent(
       },
       now
     );
-    agentRun = updateStepStatus(agentRun, "prepare-properties", "completed", now);
+    await recordStepStatus("prepare-properties", "completed");
   }
 
-  agentRun = updateStepStatus(agentRun, "draft-properties", "running", now);
+  await recordStepStatus("draft-properties", "running");
   agentRun = appendTraceEvent(
     agentRun,
     {
@@ -135,7 +186,7 @@ export async function runPropertyAnalysisAgent(
       },
       now
     );
-    agentRun = updateStepStatus(agentRun, "draft-properties", "failed", now);
+    await recordStepStatus("draft-properties", "failed");
     return {
       ...analysisResult,
       project: attachAgentRun(analysisResult.project, agentRun),
@@ -159,9 +210,9 @@ export async function runPropertyAnalysisAgent(
     },
     now
   );
-  agentRun = updateStepStatus(agentRun, "draft-properties", "completed", now);
+  await recordStepStatus("draft-properties", "completed");
 
-  agentRun = updateStepStatus(agentRun, "review-properties", "running", now);
+  await recordStepStatus("review-properties", "running");
   let review = await reviewPropertyAnalysisCandidates(
     candidateAnalyses,
     request.project
@@ -247,7 +298,7 @@ export async function runPropertyAnalysisAgent(
     },
     now
   );
-  agentRun = updateStepStatus(agentRun, "review-properties", "completed", now);
+  await recordStepStatus("review-properties", "completed");
 
   const patch = createPropertyAnalysisCandidatePatch({
     analyses: candidateAnalyses,

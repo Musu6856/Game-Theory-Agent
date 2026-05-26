@@ -16,6 +16,8 @@ import {
   generateSymbolicEquilibrium,
 } from "./research-session.ts";
 import { markResearchAssetsStaleAfterModelEdit } from "./research-flow.ts";
+import { applyResearchAssetPatchToProject } from "./research-asset-patch-apply.ts";
+import { recommendNextAgentStep } from "./research-agent/controller.ts";
 
 test("research flow derives available actions from pending decisions, not message text", () => {
   const project = createExplorationProject({
@@ -220,6 +222,49 @@ test("research flow marks completed analysis without pending action", () => {
   assert.equal(state.analysisStatusLabel, "已生成 3 项草稿");
 });
 
+test("research flow exposes re-analysis when prior properties are stale", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "test research idea",
+    now: 1710000000000,
+  });
+  const analyzed = generatePropertyAnalysis(
+    generateSymbolicEquilibrium(
+      confirmResearchModel(
+        adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+      )
+    )
+  );
+  const staleAfterNewEquilibrium = {
+    ...analyzed,
+    researchSession: {
+      ...analyzed.researchSession,
+      phase: "analysis",
+      assetFreshness: {
+        ...(analyzed.researchSession.assetFreshness ?? {}),
+        equilibrium: "fresh",
+        properties: "stale",
+      },
+      assetSummary: {
+        ...analyzed.researchSession.assetSummary,
+        pendingDecision: {
+          kind: "analyze_properties",
+          prompt: "Equilibrium changed; regenerate property analysis.",
+        },
+      },
+    },
+  };
+
+  const state = getResearchFlowState(staleAfterNewEquilibrium);
+  const action = getResearchPrimaryAction(state, "properties");
+
+  assert.equal(state.hasPropertyAnalyses, true);
+  assert.equal(state.isPropertyAnalysisStale, true);
+  assert.equal(state.canAnalyzeProperties, true);
+  assert.equal(action?.kind, "analyze_properties");
+  assert.equal(state.canDraftPaper, false);
+});
+
 test("research flow opens paper drafting after stable property analysis", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
@@ -279,10 +324,11 @@ test("research flow blocks property analysis while an equilibrium patch is still
 
   const state = getResearchFlowState(withPendingEquilibriumPatch);
 
+  assert.equal(state.canSolveEquilibrium, false);
   assert.equal(state.canAnalyzeProperties, false);
 });
 
-test("research flow treats pending property patches as not yet completed analysis", () => {
+test("research flow blocks duplicate generation while a property patch is still pending", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "test research idea",
@@ -342,7 +388,50 @@ test("research flow treats pending property patches as not yet completed analysi
   const state = getResearchFlowState(withPendingPropertiesPatch);
 
   assert.equal(state.hasPropertyAnalyses, false);
-  assert.equal(state.canAnalyzeProperties, true);
+  assert.equal(state.canAnalyzeProperties, false);
+  assert.equal(
+    getResearchPrimaryAction(state, "properties"),
+    null
+  );
+});
+
+test("research flow blocks re-solving while an equilibrium patch is pending review", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "test research idea",
+    now: 1710000000000,
+  });
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+  );
+  const withPendingEquilibriumPatch = {
+    ...confirmed,
+    researchSession: {
+      ...confirmed.researchSession,
+      assetPatches: [
+        ...(confirmed.researchSession?.assetPatches ?? []),
+        {
+          id: "patch-pending-equilibrium",
+          kind: "equilibrium",
+          summary: "Pending equilibrium review",
+          changes: [
+            {
+              kind: "replace",
+              path: "equilibriumResult.closedForm",
+              value: "\\tau_A^* = 1",
+            },
+          ],
+          status: "proposed",
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  };
+
+  const state = getResearchFlowState(withPendingEquilibriumPatch);
+
+  assert.equal(state.canSolveEquilibrium, false);
+  assert.equal(getResearchPrimaryAction(state, "equilibrium"), null);
 });
 
 test("research flow keeps the model-tab solve action available after stale model edits", () => {
@@ -491,6 +580,190 @@ test("research primary actions stay consistent across phase surfaces", () => {
 
   assert.equal(propertiesAction?.kind, "analyze_properties");
   assert.ok(propertiesAction?.description);
+});
+
+test("main chain acceptance states advance only after applying review patches", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "研究二手平台佣金与补贴策略",
+    now: 1710000000000,
+  });
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
+  );
+
+  assert.equal(getResearchFlowState(confirmed).canSolveEquilibrium, true);
+  assert.equal(
+    recommendNextAgentStep(confirmed).action?.kind,
+    "solve_equilibrium"
+  );
+
+  const equilibriumPatch = {
+    id: "patch-main-chain-equilibrium",
+    kind: "equilibrium",
+    summary: "应用一版可用均衡",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "equilibriumResult",
+        value: {
+          status: "solved",
+          concept: "主链路验收均衡",
+          solvingSteps: ["写出利润函数", "列出 FOC", "联立求解"],
+          focs: ["2*tau_A-alpha_B=0"],
+          conditions: ["alpha_B>0"],
+          closedForm: "tau_A^*=alpha_B/2",
+          derivation: "由 FOC 直接得到。",
+          code: "sp.solve([2*tau_A-alpha_B], [tau_A])",
+          warnings: [],
+        },
+      },
+    ],
+  };
+  const withEquilibriumPatch = {
+    ...confirmed,
+    researchSession: {
+      ...confirmed.researchSession,
+      assetPatches: [
+        ...(confirmed.researchSession?.assetPatches ?? []),
+        equilibriumPatch,
+      ],
+    },
+  };
+
+  assert.equal(getResearchFlowState(withEquilibriumPatch).canSolveEquilibrium, false);
+  assert.equal(getResearchFlowState(withEquilibriumPatch).canAnalyzeProperties, false);
+  assert.equal(recommendNextAgentStep(withEquilibriumPatch).status, "blocked");
+
+  const afterEquilibrium = applyResearchAssetPatchToProject(
+    withEquilibriumPatch,
+    equilibriumPatch,
+    { now: 1710000000002 }
+  );
+
+  assert.equal(afterEquilibrium.equilibriumResult?.status, "solved");
+  assert.equal(getResearchFlowState(afterEquilibrium).canAnalyzeProperties, true);
+  assert.equal(
+    recommendNextAgentStep(afterEquilibrium).action?.kind,
+    "analyze_properties"
+  );
+
+  const propertiesPatch = {
+    id: "patch-main-chain-properties",
+    kind: "properties",
+    summary: "应用性质分析",
+    status: "proposed",
+    createdAt: 1710000000003,
+    changes: [
+      {
+        kind: "replace",
+        path: "propertyAnalyses",
+        value: [
+          {
+            id: "prop-alpha",
+            target: "tau_A^*",
+            parameter: "alpha_B",
+            operation: "differentiate",
+            symbolicResult: "d tau_A^*/d alpha_B = 1/2",
+            signCondition: "为正",
+            propositionDraft: "命题：alpha_B 提高会提高 tau_A^*。",
+            proofSketch: "对闭式解求导。",
+            intuition: "参数上升推高最优佣金。",
+            warnings: [],
+          },
+          {
+            id: "prop-q",
+            target: "tau_A^*",
+            parameter: "q",
+            operation: "differentiate",
+            symbolicResult: "d tau_A^*/d q = 0",
+            signCondition: "为零",
+            propositionDraft: "命题：该简化闭式解不受 q 影响。",
+            proofSketch: "表达式中没有 q。",
+            intuition: "简化模型已经约化。",
+            warnings: [],
+          },
+          {
+            id: "prop-condition",
+            target: "existence",
+            parameter: "alpha_B",
+            operation: "threshold",
+            symbolicResult: "alpha_B>0",
+            signCondition: "阈值条件",
+            propositionDraft: "命题：内点解需要正网络效应参数。",
+            proofSketch: "由存在条件直接得到。",
+            intuition: "参数边界决定适用范围。",
+            warnings: [],
+          },
+        ],
+      },
+    ],
+  };
+  const withPropertiesPatch = {
+    ...afterEquilibrium,
+    researchSession: {
+      ...afterEquilibrium.researchSession,
+      assetPatches: [
+        ...(afterEquilibrium.researchSession?.assetPatches ?? []),
+        propertiesPatch,
+      ],
+    },
+  };
+
+  assert.equal(getResearchFlowState(withPropertiesPatch).canAnalyzeProperties, false);
+  assert.equal(getResearchFlowState(withPropertiesPatch).canDraftPaper, false);
+  assert.equal(recommendNextAgentStep(withPropertiesPatch).status, "blocked");
+
+  const afterProperties = applyResearchAssetPatchToProject(
+    withPropertiesPatch,
+    propertiesPatch,
+    { now: 1710000000004 }
+  );
+
+  assert.equal(afterProperties.propertyAnalyses?.length, 3);
+  assert.equal(getResearchFlowState(afterProperties).canDraftPaper, true);
+  assert.equal(recommendNextAgentStep(afterProperties).action?.kind, "draft_paper");
+
+  const paperPatch = {
+    id: "patch-main-chain-paper",
+    kind: "paper",
+    summary: "应用论文草稿",
+    status: "proposed",
+    createdAt: 1710000000005,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections",
+        value: [
+          {
+            id: "paper-introduction",
+            title: "引言",
+            content: "主链路验收论文草稿。",
+            status: "generated",
+          },
+        ],
+      },
+    ],
+  };
+  const afterPaper = applyResearchAssetPatchToProject(
+    {
+      ...afterProperties,
+      researchSession: {
+        ...afterProperties.researchSession,
+        assetPatches: [
+          ...(afterProperties.researchSession?.assetPatches ?? []),
+          paperPatch,
+        ],
+      },
+    },
+    paperPatch,
+    { now: 1710000000006 }
+  );
+
+  assert.equal(afterPaper.sections.length, 1);
+  assert.equal(recommendNextAgentStep(afterPaper).status, "complete");
 });
 
 test("model edits mark equilibrium and property assets stale", () => {

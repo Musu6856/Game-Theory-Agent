@@ -23,13 +23,25 @@ npm run build
 
 上线前还要完成 `docs/release-checklist.md` 中的浏览器冒烟测试。
 
+## 后台任务 worker
+
+- Vercel 环境变量里设置 `AGENT_TASK_WORKER_SECRET`。
+- 同时设置 `CRON_SECRET`，建议和 `AGENT_TASK_WORKER_SECRET` 使用同一个值；Vercel Cron 会用 `Authorization: Bearer $CRON_SECRET` 调用 worker。
+- `vercel.json` 已配置每日触发 `/api/research/agent/tasks/worker`。Hobby 计划按每日触发；需要立刻执行时仍使用产品里的显式任务 run 入口。
+- worker `POST` 入口仅给维护者手动触发，`limit` 最大 3，`leaseMs` 最大 15 分钟，避免一次触发占用过多执行时间。
+- worker 成功响应会返回 `batch` 和 `worker` 元信息；排查时优先看 `worker.trigger`、`worker.durationMs`、`batch.attempted`、`batch.completed`、`batch.failed` 和每个 task 的 status。
+- 如果 worker 返回 401/403，先检查 Vercel 的 `CRON_SECRET` 和应用里的 `AGENT_TASK_WORKER_SECRET` 是否一致；不要把 secret 写进 Git。
+
 ## 数据库
 
 开发或小范围试用前执行：
 
 ```powershell
 npm run db:push
+$env:RUN_AGENT_TASK_DB_PROBE="1"; node --test src\lib\research-agent\task-store-db-probe.test.mjs
 ```
+
+DB probe 会创建并删除自己的 `codex-agent-task-db-*` 临时任务，用来确认 `agent_tasks` 能真实完成 queued -> running -> completed、checkpoint 写入、结果脱敏和清理。
 
 若迁移失败：
 

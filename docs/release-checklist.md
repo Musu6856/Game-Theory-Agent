@@ -24,6 +24,10 @@ Use this checklist before inviting the research group to a small trial. The goal
 - [ ] Configure online search for best results:
   - `OPENALEX_API_KEY`
   - `TAVILY_MCP_URL` or `TAVILY_API_KEY`
+- [ ] Configure the protected background worker:
+  - `AGENT_TASK_WORKER_SECRET`
+  - `CRON_SECRET` set to the same value for Vercel Cron authorization
+- [ ] Confirm `vercel.json` includes one cron pointing to `/api/research/agent/tasks/worker`.
 - [ ] Confirm no private keys are committed to Git.
 
 ## 2. Automated Checks
@@ -33,6 +37,7 @@ Run from `D:\Agent测试\PaperForge-Agent`:
 ```powershell
 npm run lint
 npm test
+$env:RUN_AGENT_TASK_DB_PROBE="1"; node --test src\lib\research-agent\task-store-db-probe.test.mjs
 npx tsc --noEmit
 npm run build
 ```
@@ -41,6 +46,7 @@ Expected:
 
 - `npm run lint` exits 0 with no warnings.
 - `npm test` exits 0.
+- The DB lifecycle probe exits 0 and reports one passing task-store DB probe. It creates and deletes only its own `codex-agent-task-db-*` task rows.
 - `npx tsc --noEmit` exits 0.
 - `npm run build` exits 0.
 
@@ -68,6 +74,10 @@ Release readiness can also be checked from code via `buildReleaseReadinessReport
 - [ ] Unsupported math verification is displayed as 人工复核 or 暂不支持, not as proof.
 - [ ] Refreshing during or after an Agent run does not lose saved project data.
 - [ ] Retrying an Agent run does not duplicate an already proposed patch.
+- [ ] The protected worker route rejects missing/wrong secrets and accepts `GET` with a valid worker secret.
+- [ ] A valid worker request returns `batch` plus worker metadata (`id`, `trigger`, requested batch limits, `durationMs`) without exposing secrets.
+- [ ] Completed background task results list only patch/artifact ids from the current AgentRun, not old project history.
+- [ ] The Agent 任务审计 panel shows queued/running/completed tasks, recent checkpoints, math artifact snapshots, and patch/artifact counts for a solve-equilibrium task.
 - [ ] Exported audit reports do not contain API keys, Tavily MCP URLs, Clerk secrets, or raw provider keys.
 
 ## 5. Trial Readiness
@@ -92,6 +102,7 @@ Use this table immediately before inviting the research group. Every `Go` line m
 | Controller guidance | The next-step banner opens the actionable asset tab for pending patches, stale assets, version-review impact, math failures, and completed drafts. | The banner sends users to a passive tab when the wording asks them to regenerate or review an actionable asset. |
 | Math safety | Passed, failed, condition-insufficient, unsupported, and manual-review math states are distinguishable in UI and audit export. | Unsupported math is shown as proven, failed math is shown as passed, or failed math does not block unsafe paper output. |
 | Recovery and trace | Failed, paused, or suspiciously running Agent runs show a safe retry/continue/review suggestion and preserve trace history. | Retry duplicates already proposed patches, loses the original run context, or bypasses patch approval. |
+| Background worker | `AGENT_TASK_WORKER_SECRET` / `CRON_SECRET` are configured, Vercel Cron targets `/api/research/agent/tasks/worker`, the DB lifecycle probe passes, worker responses include safe observability metadata, and worker results are scoped to the current AgentRun. | The worker route is unauthenticated, cron is missing, DB task persistence cannot be verified, worker output is opaque, or a completed task reports unrelated old patches/artifacts as its own result. |
 | Small-group docs | Trial guide, operator runbook, demo scenarios, and trial test plan have been reviewed by the maintainer. | Trial users would need unstated setup steps, or the maintainer lacks stop-condition and rollback instructions. |
 | Trial start | One maintainer is assigned, 10-15 users are scheduled, and feedback records are prepared before the first invitation. | Trial starts before owner, cohort, stop conditions, and feedback templates are ready. |
 

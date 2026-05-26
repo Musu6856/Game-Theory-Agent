@@ -70,9 +70,15 @@ export function applyResearchAssetPatchToProject(
   options: ApplyResearchAssetPatchOptions = {}
 ): ResearchProject {
   const now = options.now ?? Date.now();
+  const projectWithSession = ensureResearchSession(project);
+
+  if (!hasApplicableAssetPatchChange(projectWithSession, patch)) {
+    return appendUnappliedPatchWarning(projectWithSession, patch, now);
+  }
+
   const projectWithAppliedStatus = recordPatchReviewVersion(
     markProjectPatchStatus(
-      ensureResearchSession(project),
+      projectWithSession,
       patch.id,
       "applied",
       now
@@ -101,6 +107,76 @@ export function applyResearchAssetPatchToProject(
   }
 
   return projectWithAppliedStatus;
+}
+
+function hasApplicableAssetPatchChange(
+  project: ResearchProject,
+  patch: ResearchAssetPatch
+) {
+  switch (patch.kind) {
+    case "model": {
+      if (!project.hotellingModel) return false;
+      const nextModel = applyModelPatchToHotellingModel(
+        project.hotellingModel,
+        patch.changes
+      );
+      return !areJsonEqual(nextModel, project.hotellingModel);
+    }
+    case "equilibrium": {
+      const current = project.equilibriumResult ?? createSymbolicEquilibriumScaffoldResult();
+      const next = applyEquilibriumChanges(current, patch.changes);
+      return !areJsonEqual(next, current);
+    }
+    case "properties": {
+      const current = project.propertyAnalyses ?? [];
+      const next = applyPropertyChanges(current, patch.changes);
+      return !areJsonEqual(next, current);
+    }
+    case "paper": {
+      const next = applyPaperSectionChanges(project.sections ?? [], patch.changes);
+      return !areJsonEqual(next, project.sections ?? []);
+    }
+  }
+}
+
+function appendUnappliedPatchWarning(
+  project: ResearchProject,
+  patch: ResearchAssetPatch,
+  now: number
+): ResearchProject {
+  const session = project.researchSession ?? createInitialResearchSession(project.rawIdea);
+
+  return {
+    ...project,
+    researchSession: {
+      ...session,
+      messages: [
+        ...session.messages,
+        createAssistantMessage(
+          "msg-asset-patch-not-applied",
+          `这条${formatPatchKind(patch.kind)}修改建议没有识别到可应用的修改路径，暂时没有写入右侧资产。请重新生成修改建议或调整 patch 路径后再应用。`,
+          now
+        ),
+      ],
+    },
+  };
+}
+
+function areJsonEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function formatPatchKind(kind: ResearchAssetPatch["kind"]) {
+  switch (kind) {
+    case "model":
+      return "模型";
+    case "equilibrium":
+      return "均衡";
+    case "properties":
+      return "性质分析";
+    case "paper":
+      return "论文草稿";
+  }
 }
 
 export function applyQuickReviewAssetPatchesToProject(
@@ -326,11 +402,15 @@ function applyPropertiesAssetPatch(
       },
       assetSummary: {
         ...session.assetSummary,
-        pendingDecision: undefined,
+        pendingDecision: {
+          kind: "draft_paper",
+          prompt:
+            "性质分析已经按建议写入右侧资产。请检查命题组后整理论文草稿。",
+        },
         nextActions: [
           "整理命题与证明草稿",
           "检查符号条件是否符合论文假设",
-          "必要时回到模型设定收窄变量",
+          "整理论文草稿",
         ],
       },
       messages: [

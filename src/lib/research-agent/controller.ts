@@ -12,6 +12,7 @@ import type {
   ResearchSessionDecision,
 } from "../types";
 import { buildProjectMathVerificationSummary } from "./math-verification-summary.ts";
+import { planEquilibriumKernelNextStep } from "./equilibrium-dynamic-planner.ts";
 import { buildVersionReviewSummary } from "./version-review-summary.ts";
 
 export type NextAgentActionKind =
@@ -197,10 +198,95 @@ export function recommendNextAgentStep(
     };
   }
 
+  const equilibriumKernelDecision =
+    session?.mathArtifacts?.length
+      ? planEquilibriumKernelNextStep(project)
+      : null;
+  const flow = getResearchFlowState(project, session);
+  if (
+    equilibriumKernelDecision?.action === "solve_equilibrium" &&
+    equilibriumKernelDecision.artifactIds?.length
+  ) {
+    return {
+      status: "ready",
+      title: equilibriumKernelDecision.title,
+      reason: equilibriumKernelDecision.reason,
+      targetTab: "equilibrium",
+      action: {
+        kind: "solve_equilibrium",
+        agentAction: "solve_equilibrium",
+        label: "重新生成符号均衡",
+        description:
+          "基于已保存的数学产物重新生成均衡候选，并在待审核 patch 处停止。",
+      },
+    };
+  }
+  if (
+    equilibriumKernelDecision?.action === "repair_equilibrium_candidate" &&
+    equilibriumKernelDecision.artifactIds?.length
+  ) {
+    return {
+      status: "ready",
+      title: equilibriumKernelDecision.title,
+      reason: equilibriumKernelDecision.reason,
+      targetTab: "equilibrium",
+      action: {
+        kind: "solve_equilibrium",
+        agentAction: "solve_equilibrium",
+        label: "修复均衡候选",
+        description:
+          "基于残差回代和独立求解产物修复均衡候选，并在待审核 patch 处停止。",
+      },
+    };
+  }
+  if (equilibriumKernelDecision?.action === "repair_model") {
+    return {
+      status: "ready",
+      title: equilibriumKernelDecision.title,
+      reason: equilibriumKernelDecision.reason,
+      targetTab: "model",
+      action: {
+        kind: "answer_model_question",
+        agentAction: "build_model",
+        label: "生成模型修复建议",
+        description:
+          "基于求解内核保存的数学产物补强模型资产，先形成待审核模型 patch，再重新求解均衡。",
+      },
+    };
+  }
+  if (
+    equilibriumKernelDecision?.action === "review_manually" &&
+    !flow.canAnalyzeProperties
+  ) {
+    return {
+      status: "blocked",
+      title: equilibriumKernelDecision.title,
+      reason: equilibriumKernelDecision.reason,
+      targetTab: "quality",
+      blocker: {
+        kind: "math_verification",
+        label: "数学产物需人工复核",
+        description: equilibriumKernelDecision.reason,
+      },
+    };
+  }
+
+  if (project.sections.length > 0 && flow.canDraftPaper) {
+    return {
+      status: "complete",
+      title: "当前闭环已有论文草稿",
+      reason: "方向、模型、均衡、性质分析和论文草稿都已经形成，可以继续编辑、导出或回到任一资产修订。",
+      targetTab: "paper",
+    };
+  }
+
   const versionSummary = buildVersionReviewSummary(
     session?.assetVersionHistory ?? []
   );
-  if (versionSummary.highestPriority === "high") {
+  if (
+    versionSummary.highestPriority === "high" &&
+    !hasExecutablePendingDecision(flow.pendingKind)
+  ) {
     const targetTab = getTabForVersionReviewSummary(versionSummary);
 
     return {
@@ -234,16 +320,6 @@ export function recommendNextAgentStep(
         label: "数学验证需修正",
         description: mathSummary.nextAction,
       },
-    };
-  }
-
-  const flow = getResearchFlowState(project, session);
-  if (project.sections.length > 0 && flow.canDraftPaper) {
-    return {
-      status: "complete",
-      title: "当前闭环已有论文草稿",
-      reason: "方向、模型、均衡、性质分析和论文草稿都已经形成，可以继续编辑、导出或回到任一资产修订。",
-      targetTab: "paper",
     };
   }
 
@@ -385,6 +461,16 @@ export function recommendNextAgentStep(
       description: "需要先补齐当前阶段的研究资产。",
     },
   };
+}
+
+function hasExecutablePendingDecision(
+  pendingKind: ResearchSessionDecision["kind"] | undefined
+) {
+  return (
+    pendingKind === "solve_equilibrium" ||
+    pendingKind === "analyze_properties" ||
+    pendingKind === "draft_paper"
+  );
 }
 
 function isSafeContinuationActionKind(

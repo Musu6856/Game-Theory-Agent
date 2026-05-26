@@ -95,7 +95,8 @@ test("equilibrium solving agent proposes a reviewable equilibrium patch with tra
     solvingSteps: ["写出平台利润函数", "对佣金和补贴求一阶条件", "联立求解内点解"],
     focs: ["\\partial \\Pi_A / \\partial \\tau_A = 0"],
     conditions: ["t_B > \\alpha_B", "q > 0"],
-    closedForm: "\\tau_A^* = \\frac{t_B - \\alpha_B}{2q}",
+    closedForm:
+      "\\tau_A^* = \\frac{t_B - \\alpha_B}{2q}; \\tau_B^* = \\frac{t_B - \\alpha_B}{2q}; s_A^* = \\frac{\\alpha_B}{2}; s_B^* = \\frac{\\alpha_B}{2}",
     derivation: "由一阶条件联立即得对称内点均衡。",
     code: "import sympy as sp\nsp.solve([foc_tau_A], [tau_A])",
     warnings: [],
@@ -150,6 +151,8 @@ test("equilibrium solving agent proposes a reviewable equilibrium patch with tra
   const patch = session?.assetPatches?.[0];
 
   assert.equal(result.usedFallback, false);
+  assert.match(result.assistantMessage, /待审核修改建议/);
+  assert.doesNotMatch(result.assistantMessage, /Equilibrium review/);
   assert.equal(result.agentRun.status, "paused");
   assert.equal(result.agentRun.requiresApproval, true);
   assert.equal(session?.agentRun?.status, "paused");
@@ -169,21 +172,34 @@ test("equilibrium solving agent proposes a reviewable equilibrium patch with tra
     result.agentRun.trace.some((event) => event.type === "tool_result"),
     true
   );
+  assert.equal(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-equilibrium" &&
+        event.type === "tool_result" &&
+        event.metadata?.kernelDecision?.action
+    ),
+    true
+  );
 });
 
 test("equilibrium solving agent keeps candidate equilibrium pending until applied", async () => {
-  const project = createConfirmedProject();
+  const baseProject = createConfirmedProject();
+  const project = {
+    ...baseProject,
+    hotellingModel: createExplicitProfitModel(),
+  };
   const providerDraftMessage =
     "FULL_EQUILIBRIUM_PROVIDER_DRAFT_SHOULD_STAY_OUT_OF_CHAT";
   const candidateEquilibrium = {
     status: "solved",
     concept: "候选均衡概念",
-    solvingSteps: ["候选求解步骤"],
-    focs: ["候选 FOC"],
-    conditions: ["候选存在条件"],
-    closedForm: "\\tau_A^* = 1",
+    solvingSteps: ["Write FOC", "Solve FOC"],
+    focs: ["2*tau_A - alpha_B = 0"],
+    conditions: ["alpha_B > 0"],
+    closedForm: "tau_A^* = alpha_B/2",
     derivation: "候选推导。",
-    code: "candidate_code()",
+    code: "sp.solve([2*tau_A-alpha_B], [tau_A])",
     warnings: [],
   };
 
@@ -237,7 +253,7 @@ test("equilibrium solving agent keeps candidate equilibrium pending until applie
     (change) => change.path === "equilibriumResult"
   );
 
-  assert.notEqual(result.project.equilibriumResult?.closedForm, "\\tau_A^* = 1");
+  assert.notEqual(result.project.equilibriumResult?.closedForm, "tau_A^* = alpha_B/2");
   assert.equal(rootChange?.value, candidateEquilibrium);
   assert.equal(
     result.project.researchSession?.messages.some((message) =>
@@ -250,11 +266,264 @@ test("equilibrium solving agent keeps candidate equilibrium pending until applie
     now: 1710000000001,
   });
 
-  assert.equal(applied.equilibriumResult?.closedForm, "\\tau_A^* = 1");
+  assert.equal(applied.equilibriumResult?.closedForm, "tau_A^* = alpha_B/2");
   assert.equal(applied.researchSession?.assetPatches?.[0].status, "applied");
   assert.equal(
     applied.researchSession?.assetSummary.pendingDecision?.kind,
     "analyze_properties"
+  );
+});
+
+test("equilibrium solving agent persists step-level math artifacts for review", async () => {
+  const project = createConfirmedProject();
+  const candidateEquilibrium = {
+    status: "solved",
+    concept: "可复核均衡",
+    solvingSteps: ["写出 FOC", "联立求解"],
+    focs: ["2*tau_A - alpha_B = 0"],
+    conditions: ["alpha_B > 0"],
+    closedForm: "tau_A^* = alpha_B/2",
+    derivation: "由 FOC 得到。",
+    code: "sp.solve([2*tau_A-alpha_B], [tau_A])",
+    warnings: [],
+  };
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-artifact-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => ({
+        project: {
+          ...project,
+          equilibriumResult: candidateEquilibrium,
+          researchSession: {
+            ...project.researchSession,
+            phase: "equilibrium",
+            assetSummary: {
+              ...project.researchSession?.assetSummary,
+              confirmedAssumptions:
+                project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+              utilityFunctions:
+                project.researchSession?.assetSummary.utilityFunctions ?? [],
+              equilibriumStatus: "solved",
+              nextActions: ["检查符号均衡推导", "生成性质分析"],
+              pendingDecision: {
+                kind: "analyze_properties",
+                prompt: "符号均衡结果已经生成。",
+              },
+            },
+            messages: project.researchSession?.messages ?? [],
+          },
+        },
+        usedFallback: false,
+        assistantMessage: "均衡候选。",
+      }),
+    }
+  );
+
+  const artifacts = result.project.researchSession?.mathArtifacts ?? [];
+  const patchId = result.project.researchSession?.assetPatches?.[0]?.id;
+
+  assert.ok(artifacts.some((artifact) => artifact.kind === "equilibrium_candidate"));
+  assert.ok(
+    artifacts.some(
+      (artifact) =>
+        artifact.kind === "closed_form_substitutions" &&
+        artifact.stepId === "review-equilibrium"
+    )
+  );
+  assert.ok(
+    artifacts.some((artifact) => artifact.kind === "foc_residuals")
+  );
+  assert.equal(
+    artifacts.every((artifact) => artifact.runId === result.agentRun.id),
+    true
+  );
+  assert.equal(
+    artifacts.every((artifact) => artifact.patchId === patchId),
+    true
+  );
+  assert.deepEqual(
+    artifacts.find((artifact) => artifact.kind === "equilibrium_candidate")
+      ?.output,
+    { equilibrium: candidateEquilibrium }
+  );
+});
+
+test("equilibrium solving agent streams math artifacts to the task sink", async () => {
+  const project = createConfirmedProject();
+  const streamedArtifacts = [];
+  const candidateEquilibrium = {
+    status: "solved",
+    concept: "streamed candidate",
+    solvingSteps: ["Write FOC", "Solve"],
+    focs: ["partial Pi_A / partial tau_A = 0"],
+    conditions: ["alpha_B > 0"],
+    closedForm: "tau_A^* = alpha_B/2",
+    derivation: "Candidate needs model-grounded review.",
+    code: "sp.solve([foc_tau_A], [tau_A])",
+    warnings: [],
+  };
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-stream-test",
+      now: 1710000000000,
+      onMathArtifact: async (artifact, context) => {
+        streamedArtifacts.push({
+          id: artifact.id,
+          kind: artifact.kind,
+          runId: artifact.runId,
+          contextRunId: context.runId,
+        });
+      },
+      solveEquilibrium: async () => ({
+        project: {
+          ...project,
+          equilibriumResult: candidateEquilibrium,
+          researchSession: {
+            ...project.researchSession,
+            phase: "equilibrium",
+            assetSummary: {
+              ...project.researchSession?.assetSummary,
+              confirmedAssumptions:
+                project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+              utilityFunctions:
+                project.researchSession?.assetSummary.utilityFunctions ?? [],
+              equilibriumStatus: "solved",
+              nextActions: ["Review equilibrium"],
+            },
+            messages: project.researchSession?.messages ?? [],
+          },
+        },
+        usedFallback: false,
+        assistantMessage: "candidate",
+      }),
+    }
+  );
+
+  assert.ok(streamedArtifacts.length >= 4);
+  assert.deepEqual(
+    streamedArtifacts.map((artifact) => artifact.kind).slice(0, 4),
+    [
+      "compiled_game_system",
+      "closed_form_substitutions",
+      "foc_residuals",
+      "generated_foc_system",
+    ]
+  );
+  assert.equal(
+    streamedArtifacts.every(
+      (artifact) =>
+        artifact.runId === result.agentRun.id &&
+        artifact.contextRunId === result.agentRun.id
+    ),
+    true
+  );
+});
+
+test("equilibrium solving agent proposes a model repair patch when solver inputs are missing", async () => {
+  const baseProject = createConfirmedProject();
+  const project = {
+    ...baseProject,
+    hotellingModel: {
+      ...baseProject.hotellingModel,
+      profitFunctions: [],
+      modelSetupDraft: "confirmed model without explicit profits",
+    },
+  };
+  const candidateEquilibrium = {
+    status: "solved",
+    concept: "candidate from incomplete model",
+    solvingSteps: ["Write FOC", "Solve"],
+    focs: ["2*tau_A - alpha_B = 0"],
+    conditions: ["alpha_B > 0"],
+    closedForm: "tau_A^* = alpha_B/2",
+    derivation: "candidate derivation",
+    code: "sp.solve([2*tau_A-alpha_B], [tau_A])",
+    warnings: [],
+  };
+  let attempts = 0;
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-model-repair-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => {
+        attempts += 1;
+        return {
+          project: {
+            ...project,
+            equilibriumResult: candidateEquilibrium,
+            researchSession: {
+              ...project.researchSession,
+              phase: "equilibrium",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus: "solved",
+                nextActions: ["review candidate"],
+                pendingDecision: {
+                  kind: "analyze_properties",
+                  prompt: "candidate generated",
+                },
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "candidate generated",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const artifacts = result.project.researchSession?.mathArtifacts ?? [];
+
+  assert.equal(attempts, 1);
+  assert.equal(result.agentRun.status, "paused");
+  assert.equal(result.agentRun.requiresApproval, true);
+  assert.equal(patch?.kind, "model");
+  assert.equal(
+    patch?.changes.some((change) => change.path === "modelSetupDraft"),
+    true
+  );
+  assert.equal(
+    result.project.researchSession?.assetPatches?.some(
+      (item) => item.kind === "equilibrium" && item.status === "proposed"
+    ),
+    false
+  );
+  assert.equal(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-equilibrium" &&
+        event.metadata?.kernelDecision?.action === "repair_model"
+    ),
+    true
+  );
+  assert.ok(
+    artifacts.some((artifact) => artifact.kind === "compiled_game_system")
+  );
+  assert.equal(
+    artifacts.every((artifact) => artifact.patchId === patch?.id),
+    true
   );
 });
 
@@ -410,7 +679,8 @@ test("equilibrium solving agent retries once when self-review finds repairable r
     solvingSteps: ["写出利润函数", "对佣金求一阶条件", "联立求解闭式解"],
     focs: ["\\partial \\Pi_A / \\partial \\tau_A = 0"],
     conditions: ["q > 0", "t_B > \\alpha_B"],
-    closedForm: "\\tau_A^* = \\frac{t_B - \\alpha_B}{2q}",
+    closedForm:
+      "\\tau_A^* = \\frac{t_B - \\alpha_B}{2q}; \\tau_B^* = \\frac{t_B - \\alpha_B}{2q}; s_A^* = \\frac{\\alpha_B}{2}; s_B^* = \\frac{\\alpha_B}{2}",
     derivation: "由一阶条件联立即得。",
     code: "import sympy as sp\nsp.solve([foc_tau_A], [tau_A])",
     warnings: [],
@@ -467,6 +737,7 @@ test("equilibrium solving agent retries once when self-review finds repairable r
   const equilibriumChange = patch?.changes.find(
     (change) => change.path === "equilibriumResult"
   );
+  const artifacts = result.project.researchSession?.mathArtifacts ?? [];
 
   assert.equal(attempts, 2);
   assert.deepEqual(equilibriumChange?.value, repairedEquilibrium);
@@ -488,6 +759,181 @@ test("equilibrium solving agent retries once when self-review finds repairable r
     ),
     true
   );
+  assert.equal(
+    artifacts.some(
+      (artifact) =>
+        artifact.id.includes(`${result.agentRun.id}-review-equilibrium`) &&
+        !artifact.id.includes(`${result.agentRun.id}-repair-review-equilibrium`)
+    ),
+    true
+  );
+  assert.equal(
+    artifacts.some((artifact) =>
+      artifact.id.includes(`${result.agentRun.id}-repair-review-equilibrium`)
+    ),
+    true
+  );
+});
+
+test("equilibrium solving agent does not propose a non-solved equilibrium patch after bounded repair", async () => {
+  const project = createConfirmedProject();
+  const unresolvedEquilibrium = {
+    status: "symbolic_failure",
+    concept: "implicit system only",
+    solvingSteps: ["Write first-order conditions"],
+    focs: [],
+    conditions: [],
+    closedForm: "",
+    derivation: "No closed-form equilibrium was obtained.",
+    code: "",
+    warnings: ["not solved"],
+  };
+  let attempts = 0;
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-unsolved-repair-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => {
+        attempts += 1;
+        return {
+          project: {
+            ...project,
+            equilibriumResult: unresolvedEquilibrium,
+            researchSession: {
+              ...project.researchSession,
+              phase: "equilibrium",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus: "symbolic_failure",
+                nextActions: ["review implicit system"],
+                pendingDecision: {
+                  kind: "solve_equilibrium",
+                  prompt: "no closed form",
+                },
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "implicit system only",
+        };
+      },
+    }
+  );
+
+  const patches = result.project.researchSession?.assetPatches ?? [];
+
+  assert.equal(attempts, 2);
+  assert.equal(
+    patches.some((patch) => patch.kind === "equilibrium" && patch.status === "proposed"),
+    false
+  );
+  assert.equal(patches[0]?.kind, "model");
+  assert.equal(
+    result.project.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
+});
+
+test("equilibrium solving agent switches to model repair when bounded repair loses model inputs", async () => {
+  const baseProject = createConfirmedProject();
+  const explicitModel = createExplicitProfitModel();
+  const project = {
+    ...baseProject,
+    hotellingModel: {
+      ...explicitModel,
+      platforms: ["A", "B"],
+      profitFunctions: [
+        ...explicitModel.profitFunctions,
+        {
+          id: "profit-b",
+          platform: "B",
+          expression: "alpha_B*tau_A - tau_A^2",
+          notes: "Second platform profit makes variable matching explicit.",
+        },
+      ],
+    },
+  };
+  const riskyEquilibrium = {
+    status: "solved",
+    concept: "wrong closed form",
+    solvingSteps: ["Write platform profit.", "Take FOC.", "Solve FOC."],
+    focs: ["2*tau_A - alpha_B = 0"],
+    conditions: ["alpha_B > 0"],
+    closedForm: "tau_A^* = alpha_B/3",
+    derivation: "Wrong candidate.",
+    code: "sp.solve([2*tau_A-alpha_B], [tau_A])",
+    warnings: [],
+  };
+  const repairedButUngrounded = {
+    status: "solved",
+    concept: "ungrounded repaired candidate",
+    solvingSteps: ["Write FOC.", "Solve FOC."],
+    focs: ["2*s - 1 = 0"],
+    conditions: ["s > 0"],
+    closedForm: "s^* = 1/2",
+    derivation: "Uses a variable outside the confirmed model.",
+    code: "sp.solve([2*s-1], [s])",
+    warnings: [],
+  };
+  let attempts = 0;
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-repair-to-model-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => {
+        attempts += 1;
+        const equilibrium =
+          attempts === 1 ? riskyEquilibrium : repairedButUngrounded;
+        return {
+          project: {
+            ...project,
+            equilibriumResult: equilibrium,
+            researchSession: {
+              ...project.researchSession,
+              phase: "equilibrium",
+              assetSummary: {
+                ...project.researchSession?.assetSummary,
+                confirmedAssumptions:
+                  project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+                utilityFunctions:
+                  project.researchSession?.assetSummary.utilityFunctions ?? [],
+                equilibriumStatus: equilibrium.status,
+                nextActions: ["Review equilibrium"],
+              },
+              messages: project.researchSession?.messages ?? [],
+            },
+          },
+          usedFallback: false,
+          assistantMessage: "candidate",
+        };
+      },
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+
+  assert.equal(attempts, 2);
+  assert.equal(patch?.kind, "model");
+  assert.equal(
+    patch?.changes.some((change) => change.path === "modelSetupDraft"),
+    true
+  );
+  assert.notDeepEqual(result.project.equilibriumResult, repairedButUngrounded);
 });
 
 test("equilibrium solving agent repairs candidates with ungrounded math symbols", async () => {
@@ -509,7 +955,8 @@ test("equilibrium solving agent repairs candidates with ungrounded math symbols"
     solvingSteps: ["对 tau_A 求一阶条件", "联立求解"],
     focs: ["partial Pi_A / partial tau_A = 0"],
     conditions: ["q > 0"],
-    closedForm: "tau_A^* = alpha_B / q",
+    closedForm:
+      "tau_A^* = alpha_B / q; tau_B^* = alpha_B / q; s_A^* = 0; s_B^* = 0",
     derivation: "由 FOC 得到 tau_A^*。",
     code: "sp.solve([foc_tau_A], [tau_A])",
     warnings: [],
@@ -577,7 +1024,11 @@ test(
   "equilibrium solving agent repairs candidates whose closed form fails SymPy FOC residual checks",
   { skip: !hasLocalSympy },
   async () => {
-    const project = createConfirmedProject();
+    const baseProject = createConfirmedProject();
+    const project = {
+      ...baseProject,
+      hotellingModel: createExplicitProfitModel(),
+    };
     const riskyEquilibrium = {
       status: "solved",
       concept: "错误闭式解",

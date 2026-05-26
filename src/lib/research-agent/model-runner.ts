@@ -26,7 +26,8 @@ import {
 } from "./resume.ts";
 import {
   appendTraceEvent,
-  updateStepStatus,
+  updateStepStatusAndNotify,
+  type AgentCheckpointSink,
   type AgentRun,
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
@@ -44,6 +45,7 @@ export type ModelGenerationAgentClient = ResearchCompletionClient & {
     request: ResearchGenerationRequest,
     client: ResearchCompletionClient
   ) => Promise<ResearchGenerationResponse>;
+  onAgentCheckpoint?: AgentCheckpointSink;
 };
 
 export type ModelGenerationAgentResult = ResearchGenerationResponse & {
@@ -81,12 +83,26 @@ export async function runModelGenerationAgent(
       now
     );
   }
+  const recordStepStatus = async (
+    stepId: string,
+    status: AgentRun["plan"][number]["status"],
+    metadata?: Record<string, unknown>
+  ) => {
+    agentRun = await updateStepStatusAndNotify(
+      agentRun,
+      stepId,
+      status,
+      now,
+      metadata,
+      client.onAgentCheckpoint
+    );
+  };
 
   const selectedDirection = request.project.researchSession?.directions.find(
     (direction) => direction.id === request.selectedDirectionId
   );
   if (!shouldSkipCompletedStep(agentRun, "adopt-direction")) {
-    agentRun = updateStepStatus(agentRun, "adopt-direction", "running", now);
+    await recordStepStatus("adopt-direction", "running");
     agentRun = appendTraceEvent(
       agentRun,
       {
@@ -101,10 +117,10 @@ export async function runModelGenerationAgent(
       },
       now
     );
-    agentRun = updateStepStatus(agentRun, "adopt-direction", "completed", now);
+    await recordStepStatus("adopt-direction", "completed");
   }
 
-  agentRun = updateStepStatus(agentRun, "draft-model", "running", now);
+  await recordStepStatus("draft-model", "running");
   agentRun = appendTraceEvent(
     agentRun,
     {
@@ -140,7 +156,7 @@ export async function runModelGenerationAgent(
       },
       now
     );
-    agentRun = updateStepStatus(agentRun, "draft-model", "failed", now);
+    await recordStepStatus("draft-model", "failed");
     return {
       ...buildResult,
       project: attachAgentRun(buildResult.project, agentRun),
@@ -164,9 +180,9 @@ export async function runModelGenerationAgent(
     },
     now
   );
-  agentRun = updateStepStatus(agentRun, "draft-model", "completed", now);
+  await recordStepStatus("draft-model", "completed");
 
-  agentRun = updateStepStatus(agentRun, "review-model", "running", now);
+  await recordStepStatus("review-model", "running");
   let review = reviewModelCandidate(candidateModel);
   if (!review.ok) {
     agentRun = appendTraceEvent(
@@ -250,7 +266,7 @@ export async function runModelGenerationAgent(
     },
     now
   );
-  agentRun = updateStepStatus(agentRun, "review-model", "completed", now);
+  await recordStepStatus("review-model", "completed");
 
   const patch = createModelCandidatePatch({
     model: candidateModel,

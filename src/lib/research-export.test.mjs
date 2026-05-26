@@ -12,6 +12,7 @@ import {
   generatePropertyAnalysis,
   generateSymbolicEquilibrium,
 } from "./research-session.ts";
+import { applyResearchAssetPatchToProject } from "./research-asset-patch-apply.ts";
 
 function createGeneratedResearchProject(rawIdea = "secondhand platform subsidy") {
   const project = createExplorationProject({
@@ -78,6 +79,89 @@ test("buildResearchProjectMarkdown includes the core research assets", () => {
   assert.match(markdown, /## 性质分析/);
   assert.match(markdown, /二手平台佣金与补贴策略/);
   assert.match(markdown, /命题草稿/);
+});
+
+test("buildResearchProjectMarkdown includes applied paper draft sections", () => {
+  const analyzed = createGeneratedResearchProject();
+  const patch = {
+    id: "patch-paper-export",
+    kind: "paper",
+    summary: "生成论文草稿章节",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "sections",
+        value: [
+          {
+            id: "paper-introduction",
+            title: "引言与研究问题",
+            content: "这是已经应用到论文输出资产里的引言章节。",
+            status: "generated",
+          },
+          {
+            id: "paper-model",
+            title: "模型设定",
+            content: "这是已经应用到论文输出资产里的模型章节。",
+            status: "generated",
+          },
+        ],
+      },
+    ],
+  };
+  const projectWithPatch = {
+    ...analyzed,
+    researchSession: {
+      ...analyzed.researchSession,
+      assetPatches: [...(analyzed.researchSession?.assetPatches ?? []), patch],
+    },
+  };
+  const applied = applyResearchAssetPatchToProject(projectWithPatch, patch, {
+    now: 1710000000002,
+  });
+
+  const markdown = buildResearchProjectMarkdown(applied);
+
+  assert.match(markdown, /## 论文输出/);
+  assert.match(markdown, /### 引言与研究问题/);
+  assert.match(markdown, /这是已经应用到论文输出资产里的引言章节。/);
+  assert.match(markdown, /### 模型设定/);
+  assert.match(markdown, /这是已经应用到论文输出资产里的模型章节。/);
+});
+
+test("buildResearchProjectMarkdown includes saved math artifacts", () => {
+  const analyzed = {
+    ...createGeneratedResearchProject(),
+    researchSession: {
+      ...createGeneratedResearchProject().researchSession,
+      mathArtifacts: [
+        {
+          id: "artifact-residual",
+          runId: "agent-equilibrium-test",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium-test",
+          kind: "sympy_residual_check",
+          title: "SymPy FOC 残差回代",
+          status: "passed",
+          source: "sympy",
+          input: {
+            residuals: ["2*tau_A-alpha_B"],
+            substitutions: { tau_A: "alpha_B/2" },
+          },
+          output: { residuals: ["0"] },
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  };
+
+  const markdown = buildResearchProjectMarkdown(analyzed);
+
+  assert.match(markdown, /## 数学产物记录/);
+  assert.match(markdown, /SymPy FOC 残差回代/);
+  assert.match(markdown, /agent-equilibrium-test/);
+  assert.match(markdown, /"residuals": \[\s+"0"\s+\]/);
 });
 
 test("buildResearchProjectMarkdown exports a reproducible SymPy review script", () => {

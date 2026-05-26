@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquarePlus, PanelRightOpen } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,12 @@ import { ResearchSidebar } from "./research-sidebar";
 import { ResearchWorkspaceShell } from "./research-workspace-shell";
 import {
   createProject,
+  createAgentTaskApi,
+  fetchAgentTaskApi,
+  fetchProject,
   generateResearchProjectApi,
+  listAgentTasksForProjectApi,
+  runAgentTaskApi,
   saveProject,
   type GenerateResearchProjectResult,
 } from "@/lib/api";
@@ -27,6 +32,7 @@ import {
   planSafeContinuation,
   type SafeContinuationStep,
 } from "@/lib/research-agent/controller";
+import { selectRecoverableAgentTaskForProject } from "@/lib/research-agent/task-recovery";
 import { appendSafeContinuationTrace } from "@/lib/research-agent/trace";
 import { proposeRollbackPatchFromVersionEvent } from "@/lib/research-agent/version-history";
 import type { AgentRecoverySuggestion } from "@/lib/research-agent/recovery";
@@ -54,6 +60,8 @@ import { normalizeSymbolRegistry } from "@/lib/symbol-governance";
 import { getPersistableResearchProject } from "@/lib/research-generation-result";
 import { useStore } from "@/lib/store";
 import type {
+  AgentTask,
+  AgentTaskInput,
   ResearchAssetPatch,
   ResearchProject,
   ResearchSessionMessage,
@@ -82,15 +90,22 @@ export function ResearchWorkspace({
     string | null
   >(null);
   const [isContinuingSafely, setIsContinuingSafely] = useState(false);
+  const [activeAgentTask, setActiveAgentTask] = useState<AgentTask | null>(null);
+  const [agentTasks, setAgentTasks] = useState<AgentTask[]>([]);
   const [localComposingProjectId, setLocalComposingProjectId] =
     useState<string | null>(null);
   const [optimisticMessage, setOptimisticMessage] =
     useState<ResearchSessionMessage | null>(null);
   const [pendingAssistantMessage, setPendingAssistantMessage] =
     useState<ResearchChatViewMessage | null>(null);
+  const inFlightAgentTaskIdsRef = useRef<Set<string>>(new Set());
+  const runAndRefreshAgentTaskRef = useRef<
+    ((task: AgentTask, projectId: string) => Promise<ResearchProject>) | null
+  >(null);
   const activeProject = project
     ? normalizeResearchProjectForWorkspace(project)
     : null;
+  const activeProjectId = activeProject?.id;
   const { isComposingNewConversation } = getResearchWorkspaceViewState({
     projectId: project?.id,
     startComposingNewConversation,
@@ -103,6 +118,10 @@ export function ResearchWorkspace({
     ? displayedProject.researchSession ??
       createInitialResearchSession(displayedProject.rawIdea)
     : null;
+  const visibleAgentTask =
+    activeAgentTask?.projectId === activeProjectId ? activeAgentTask : null;
+  const isAgentTaskActive =
+    visibleAgentTask !== null && isAgentTaskInProgress(visibleAgentTask);
   const isBusy =
     isSending ||
     Boolean(adoptingDirectionId) ||
@@ -111,7 +130,8 @@ export function ResearchWorkspace({
     isAnalyzingProperties ||
     isDraftingPaper ||
     Boolean(revisingPaperSectionId) ||
-    isContinuingSafely;
+    isContinuingSafely ||
+    isAgentTaskActive;
 
   function readStoredModelSourceSettings() {
     return parseStoredModelSourceSettings(
@@ -133,6 +153,141 @@ export function ResearchWorkspace({
     dispatch({ type: "SET_PROJECT", payload: nextProject });
     await saveProject(nextProject);
   }
+
+  async function refreshProjectFromServer(projectId: string) {
+    const refreshed = normalizeResearchProjectForWorkspace(
+      await fetchProject(projectId)
+    );
+    dispatch({ type: "SET_PROJECT", payload: refreshed });
+    return refreshed;
+  }
+
+  function upsertAgentTask(task: AgentTask) {
+    setAgentTasks((currentTasks) => {
+      const nextTasks = currentTasks.filter((item) => item.id !== task.id);
+      return [task, ...nextTasks].sort((a, b) => b.updatedAt - a.updatedAt);
+    });
+  }
+
+  async function runBackgroundAgentTask({
+    action,
+    currentProject,
+    resume,
+    sectionId,
+    instruction,
+  }: {
+    action: BackgroundAgentTaskAction;
+    currentProject: ResearchProject;
+    resume?: AgentResumeRequest;
+    sectionId?: string;
+    instruction?: string;
+  }) {
+    const task = await createAgentTaskApi({
+      rawIdea: currentProject.rawIdea,
+      action,
+      projectId: currentProject.id,
+      ...(resume ? { resume } : {}),
+      ...(sectionId ? { sectionId } : {}),
+      ...(instruction ? { instruction } : {}),
+    });
+    setActiveAgentTask(task);
+    upsertAgentTask(task);
+    return runAndRefreshAgentTask(task, currentProject.id);
+  }
+
+  async function runAndRefreshAgentTask(
+    task: AgentTask,
+    projectId: string
+  ) {
+    if (inFlightAgentTaskIdsRef.current.has(task.id)) {
+      return refreshProjectFromServer(projectId);
+    }
+
+    inFlightAgentTaskIdsRef.current.add(task.id);
+    try {
+      let runTaskError: unknown;
+      const runTaskPromise = runAgentTaskApi(
+        task.id,
+        readRuntimeModelSourceSettings()
+      ).catch((error) => {
+        runTaskError = error;
+        return null;
+      });
+
+      const finishedTask = await waitForAgentTaskCompletion(
+        task,
+        (updatedTask) => {
+          setActiveAgentTask(updatedTask);
+          upsertAgentTask(updatedTask);
+        }
+      );
+      const routeTask = await runTaskPromise;
+      const finalTask = selectNewestAgentTask(
+        routeTask ? [finishedTask, routeTask] : [finishedTask]
+      );
+      setActiveAgentTask(finalTask);
+      upsertAgentTask(finalTask);
+      if (runTaskError && isAgentTaskInProgress(finalTask)) {
+        throw runTaskError;
+      }
+      if (finalTask.status === "failed") {
+        throw new Error(finalTask.error ?? "Agent task failed");
+      }
+      if (finalTask.status !== "completed") {
+        throw new Error(`Agent task stopped with status: ${finalTask.status}`);
+      }
+
+      return refreshProjectFromServer(projectId);
+    } finally {
+      inFlightAgentTaskIdsRef.current.delete(task.id);
+    }
+  }
+  useEffect(() => {
+    runAndRefreshAgentTaskRef.current = runAndRefreshAgentTask;
+  });
+
+  useEffect(() => {
+    if (!activeProjectId || isComposingNewConversation) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function recoverAgentTask() {
+      if (!activeProjectId) return;
+
+      try {
+        const tasks = await listAgentTasksForProjectApi(activeProjectId);
+        if (cancelled) return;
+        setAgentTasks(tasks);
+
+        const recoverableTask = selectRecoverableAgentTaskForProject(
+          tasks,
+          activeProjectId
+        );
+        if (!recoverableTask) return;
+        if (inFlightAgentTaskIdsRef.current.has(recoverableTask.id)) return;
+
+        setActiveAgentTask(recoverableTask);
+        upsertAgentTask(recoverableTask);
+        const runTask = runAndRefreshAgentTaskRef.current;
+        if (!runTask) return;
+        await runTask(recoverableTask, activeProjectId);
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Failed to recover agent task", error);
+        toast.error("任务恢复失败", {
+          description: "请刷新项目或重新点击当前步骤。",
+        });
+      }
+    }
+
+    recoverAgentTask();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProjectId, isComposingNewConversation]);
 
   async function handleAdopt(directionId: string) {
     if (!activeProject || isBusy) return;
@@ -212,16 +367,10 @@ export function ResearchWorkspace({
 
     setBusy(true);
     try {
-      const result = await generateResearchProjectApi({
+      const nextProject = await runBackgroundAgentTask({
         action,
-        rawIdea: currentProject.rawIdea,
-        project: currentProject,
-        runtimeModelSource: readRuntimeModelSourceSettings(),
+        currentProject,
       });
-      const nextProject = getPersistableResearchProject(result);
-      if (!nextProject) {
-        throw new Error("Agent action did not return a persistable project.");
-      }
 
       const projectAfterAction =
         action === "solve_equilibrium" &&
@@ -318,28 +467,11 @@ export function ResearchWorkspace({
 
     setIsSolvingEquilibrium(true);
     try {
-      const result =
-        await generateResearchProjectApi({
-          action: "solve_equilibrium",
-          rawIdea: activeProject.rawIdea,
-          project: activeProject,
-          runtimeModelSource: readRuntimeModelSourceSettings(),
-          resume,
-        });
-      const nextProject = getPersistableResearchProject(result);
-      if (!nextProject) {
-        if (userMessage) {
-          await persistGeneratedProject(
-            appendConversationTurnToProject(
-              activeProject,
-              userMessage,
-              "模型服务暂时不可用，我没有把这次均衡结果写入右侧资产。请稍后重试。"
-            )
-          );
-        }
-        toast.error("符号均衡生成失败，右侧资产未更新。");
-        return;
-      }
+      const nextProject = await runBackgroundAgentTask({
+        action: "solve_equilibrium",
+        currentProject: activeProject,
+        resume,
+      });
       const hasPendingEquilibriumPatch = hasProposedAssetPatch(
         nextProject,
         "equilibrium"
@@ -390,28 +522,11 @@ export function ResearchWorkspace({
 
     setIsAnalyzingProperties(true);
     try {
-      const result =
-        await generateResearchProjectApi({
-          action: "analyze_properties",
-          rawIdea: activeProject.rawIdea,
-          project: activeProject,
-          runtimeModelSource: readRuntimeModelSourceSettings(),
-          resume,
-        });
-      const nextProject = getPersistableResearchProject(result);
-      if (!nextProject) {
-        if (userMessage) {
-          await persistGeneratedProject(
-            appendConversationTurnToProject(
-              activeProject,
-              userMessage,
-              "模型服务暂时不可用，我没有把这次性质分析写入右侧资产。请稍后重试。"
-            )
-          );
-        }
-        toast.error("性质分析生成失败，右侧资产未更新。");
-        return;
-      }
+      const nextProject = await runBackgroundAgentTask({
+        action: "analyze_properties",
+        currentProject: activeProject,
+        resume,
+      });
       const hasPendingPropertiesPatch = hasProposedAssetPatch(
         nextProject,
         "properties"
@@ -448,19 +563,11 @@ export function ResearchWorkspace({
 
     setIsDraftingPaper(true);
     try {
-      const result =
-        await generateResearchProjectApi({
-          action: "draft_paper",
-          rawIdea: activeProject.rawIdea,
-          project: activeProject,
-          runtimeModelSource: readRuntimeModelSourceSettings(),
-          resume,
-        });
-      const nextProject = getPersistableResearchProject(result);
-      if (!nextProject) {
-        toast.error("论文草稿整理失败，右侧资产未更新。");
-        return;
-      }
+      const nextProject = await runBackgroundAgentTask({
+        action: "draft_paper",
+        currentProject: activeProject,
+        resume,
+      });
       await persistGeneratedProject(nextProject);
       toast.success("论文输出 Agent 已准备草稿建议", {
         description: "请先在右侧审阅并应用，再导出 Markdown 或继续改写。",
@@ -481,20 +588,12 @@ export function ResearchWorkspace({
 
     setRevisingPaperSectionId(sectionId);
     try {
-      const result =
-        await generateResearchProjectApi({
-          action: "revise_paper_section",
-          rawIdea: activeProject.rawIdea,
-          project: activeProject,
-          sectionId,
-          instruction,
-          runtimeModelSource: readRuntimeModelSourceSettings(),
-        });
-      const nextProject = getPersistableResearchProject(result);
-      if (!nextProject) {
-        toast.error("章节改写建议生成失败，右侧资产未更新。");
-        return;
-      }
+      const nextProject = await runBackgroundAgentTask({
+        action: "revise_paper_section",
+        currentProject: activeProject,
+        sectionId,
+        instruction,
+      });
 
       await persistGeneratedProject(nextProject);
       toast.success("章节级论文 Agent 已准备改写建议", {
@@ -733,6 +832,16 @@ export function ResearchWorkspace({
 
     const nextProject = applyResearchAssetPatchToProject(currentProject, patch);
     await persistGeneratedProject(nextProject);
+    const appliedPatch = nextProject.researchSession?.assetPatches?.find(
+      (item) => item.id === patchId
+    );
+    if (appliedPatch?.status !== "applied") {
+      toast.error("修改未应用", {
+        description: "这条修改建议没有识别到可写入右侧资产的有效路径。",
+      });
+      return;
+    }
+
     toast.success("修改已应用", {
       description: getAppliedPatchToastDescription(patch.kind),
     });
@@ -847,6 +956,8 @@ export function ResearchWorkspace({
             isDraftingPaper={isDraftingPaper}
             revisingPaperSectionId={revisingPaperSectionId}
             isContinuingSafely={isContinuingSafely}
+            activeAgentTask={visibleAgentTask}
+            agentTasks={agentTasks}
             onAdopt={handleAdopt}
             onConfirmModel={handleConfirmModel}
             onSafeContinue={handleSafeContinue}
@@ -870,6 +981,44 @@ export function ResearchWorkspace({
       }
     />
   );
+}
+
+type BackgroundAgentTaskAction = Extract<
+  AgentTaskInput["action"],
+  | "solve_equilibrium"
+  | "analyze_properties"
+  | "draft_paper"
+  | "revise_paper_section"
+>;
+
+function isAgentTaskInProgress(task: AgentTask) {
+  return task.status === "queued" || task.status === "running";
+}
+
+function selectNewestAgentTask(tasks: AgentTask[]) {
+  return tasks.reduce((newest, task) =>
+    task.updatedAt > newest.updatedAt ? task : newest
+  );
+}
+
+async function waitForAgentTaskCompletion(
+  task: AgentTask,
+  onUpdate?: (task: AgentTask) => void
+) {
+  let currentTask = task;
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (!isAgentTaskInProgress(currentTask)) return currentTask;
+
+    await delay(1000);
+    currentTask = await fetchAgentTaskApi(currentTask.id);
+    onUpdate?.(currentTask);
+  }
+
+  return currentTask;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 type ApiConversationPatch = NonNullable<GenerateResearchProjectResult["assetPatch"]>;
@@ -1060,39 +1209,6 @@ function attachChatMessageToProject(
           createdAt: createTimestamp(),
         },
         ...messages.slice(insertIndex),
-      ],
-    },
-  };
-}
-
-function appendConversationTurnToProject(
-  project: ResearchProject,
-  userMessage: string,
-  assistantMessage: string
-): ResearchProject {
-  const session =
-    project.researchSession ??
-    createInitialResearchSession(project.rawIdea);
-  const createdAt = createTimestamp();
-
-  return {
-    ...project,
-    researchSession: {
-      ...session,
-      messages: [
-        ...session.messages,
-        {
-          id: `msg-user-fallback-${createdAt}`,
-          role: "user",
-          content: userMessage.trim(),
-          createdAt,
-        },
-        {
-          id: `msg-assistant-fallback-${createdAt}`,
-          role: "assistant",
-          content: assistantMessage,
-          createdAt,
-        },
       ],
     },
   };

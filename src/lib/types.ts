@@ -326,6 +326,32 @@ export type ResearchMathVerificationCheck = {
   analysisIndex?: number;
 };
 
+export type ResearchMathArtifactKind =
+  | "equilibrium_candidate"
+  | "compiled_game_system"
+  | "closed_form_substitutions"
+  | "foc_residuals"
+  | "generated_foc_system"
+  | "model_profit_foc"
+  | "solver_attempt"
+  | "sympy_residual_check"
+  | "sympy_solve_check";
+
+export interface ResearchMathArtifact {
+  id: string;
+  runId?: string;
+  stepId: string;
+  patchId?: string;
+  kind: ResearchMathArtifactKind;
+  title: string;
+  status: ResearchMathVerificationCheck["status"];
+  source: "candidate" | "model" | "sympy";
+  input?: unknown;
+  output?: unknown;
+  issues?: string[];
+  createdAt: number;
+}
+
 export interface ResearchSession {
   phase: "direction" | "model" | "equilibrium" | "analysis" | "paper";
   directions: ResearchDirection[];
@@ -338,6 +364,7 @@ export interface ResearchSession {
   assetFreshness?: ResearchAssetFreshnessMap;
   assetPatches?: ResearchAssetPatch[];
   mathVerificationChecks?: ResearchMathVerificationCheck[];
+  mathArtifacts?: ResearchMathArtifact[];
 }
 
 export type AgentRunStatus =
@@ -356,6 +383,62 @@ export type AgentRunAction =
   | "revise_paper_section"
   | "safe_continue"
   | "confirm_model";
+
+export type AgentTaskStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface AgentTaskCheckpoint {
+  id: string;
+  stepId: string;
+  title: string;
+  status: AgentStep["status"];
+  toolName?: string;
+  createdAt: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentTaskInput {
+  rawIdea: string;
+  action: AgentRunAction;
+  projectId: string;
+  selectedDirectionId?: string;
+  sectionId?: string;
+  instruction?: string;
+  resume?: {
+    runId: string;
+    checkpointId?: string;
+  };
+  runtimeModelSource?: ModelSourceSettings;
+}
+
+export interface AgentTaskResult {
+  projectId: string;
+  runId?: string;
+  patchIds?: string[];
+  mathArtifactIds?: string[];
+}
+
+export interface AgentTask {
+  id: string;
+  ownerId: string;
+  projectId: string;
+  action: AgentRunAction;
+  status: AgentTaskStatus;
+  input: AgentTaskInput | Record<string, unknown>;
+  checkpoints: AgentTaskCheckpoint[];
+  workerId?: string;
+  leaseUntil?: number;
+  result?: AgentTaskResult | unknown;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  failedAt?: number;
+}
 
 export interface AgentRun {
   id: string;

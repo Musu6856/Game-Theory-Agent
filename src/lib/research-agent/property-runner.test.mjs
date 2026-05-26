@@ -72,6 +72,50 @@ function createCandidateAnalyses() {
   ];
 }
 
+test("property analysis agent stops before drafting without an applied solved equilibrium", async () => {
+  const project = confirmResearchModel(
+    adoptResearchDirection(
+      createExplorationProject({
+        id: "11111111-1111-4111-8111-111111111111",
+        rawIdea: "test property guard",
+        now: 1710000000000,
+      }),
+      "secondhand-commission-subsidy-hotelling"
+    )
+  );
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "property-agent-equilibrium-guard-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        return {
+          project,
+          usedFallback: false,
+          assistantMessage: "should not draft properties",
+        };
+      },
+    }
+  );
+
+  assert.equal(attempts, 0);
+  assert.equal(result.agentRun.status, "failed");
+  assert.equal(
+    Boolean(
+      result.project.researchSession?.assetPatches?.some(
+        (patch) => patch.kind === "properties" && patch.status === "proposed"
+      )
+    ),
+    false
+  );
+});
+
 test("property analysis agent proposes a reviewable properties patch with trace", async () => {
   const project = createSolvedProject();
   const candidateAnalyses = createCandidateAnalyses();
@@ -561,7 +605,10 @@ test("property analysis agent keeps candidate analyses pending until applied", a
   assert.equal(applied.propertyAnalyses?.length, 3);
   assert.equal(applied.propertyAnalyses?.[0].id, "buyer-network-commission");
   assert.equal(applied.researchSession?.assetPatches?.[0].status, "applied");
-  assert.equal(applied.researchSession?.assetSummary.pendingDecision, undefined);
+  assert.equal(
+    applied.researchSession?.assetSummary.pendingDecision?.kind,
+    "draft_paper"
+  );
 });
 
 test("property analysis agent retries once when self-review finds repairable risks", async () => {

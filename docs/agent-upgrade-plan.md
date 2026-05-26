@@ -2,11 +2,11 @@
 
 ## 1. 背景与目标
 
-PaperForge 已经形成一个初步闭环：中文理论研究工作台、结构化 AI 生成、研究资产管理、模型源配置、项目持久化、patch 审核和质量控制都已经存在。PaperForge-Agent 的目标不是从零重写，而是在这个闭环之上升级出一个可审计、可联网、可分步执行的研究 Agent。
+PaperForge 已经形成一个初步闭环：博弈论论文工作台、结构化 AI 生成、研究资产管理、模型源配置、项目持久化、patch 审核和质量控制都已经存在。PaperForge-Agent 的目标不是从零重写，而是在这个闭环之上升级出一个可审计、可联网、可分步执行的博弈论论文流程 Agent。
 
 最终目标：
 
-PaperForge-Agent 最终应该像一个中文理论研究助理，而不是一次性论文生成器。用户输入一个模糊研究想法后，Agent 负责拆解、联网搜索、建模、检查、修正和记录；用户负责选择方向、批准关键假设、审阅资产变更。系统要能把想法逐步推进成可审阅、可修改、可导出的理论论文草稿。
+PaperForge-Agent 最终应该像一个博弈论论文建模与写作助理，而不是一次性论文生成器。用户输入一个模糊研究想法后，Agent 负责拆解、联网搜索、建模、检查、修正和记录；用户负责选择方向、批准关键假设、审阅资产变更。系统要能把想法逐步推进成可审阅、可修改、可导出的博弈论论文草稿。
 
 目标形态：
 
@@ -28,7 +28,7 @@ PaperForge-Agent 最终应该像一个中文理论研究助理，而不是一次
 
 本轮边界：
 
-- 不直接实现后台任务队列级长任务续跑。当前 checkpoint 续跑仍是从失败步骤重试；真正恢复半个请求或后台长任务需要持久化执行器和任务协议。
+- 不把后台任务包装成已经完整托管队列。当前 checkpoint 续跑仍是从失败步骤重试；后台持久任务 v1 已落地任务表、任务状态、租约、续租、结果、显式 run 入口、受保护 worker GET/POST batch 入口、Vercel Cron 触发、前端任务恢复、步骤级数学产物 checkpoint 回写、任务级审计 UI 和真实 DB lifecycle probe。真正恢复半个请求、托管队列语义和跨项目记忆仍需单独设计。
 - 不直接实现跨项目记忆。当前项目审计仍是单项目上下文；跨项目经验复用需要单独设计项目索引、版本比较和记忆检索。
 - 不绕过人工审批。模型、均衡、性质分析和论文草稿仍通过待审核 patch 写入资产。
 
@@ -181,7 +181,7 @@ type EvidenceSource = {
 
 `EvidencePack` 是内部类型名；用户界面统一称为“来源依据”或“联网来源”，避免把内部英文概念直接暴露给用户。
 
-第一版可以先把 Agent 状态挂到 `researchSession`，等需要长任务恢复、历史回放或多人协作时，再拆独立表。
+第一版先把 Agent 状态挂到 `researchSession`；现在后台持久任务 v1 已新增独立 `agent_tasks` 协议，用来承载队列状态、租约、检查点快照、结果和失败原因。任务创建会校验项目归属，runner 会续租并在写入检查点/项目资产前确认当前 worker 仍持有租约；保存项目输出期间也保持续租，避免旧 worker 在慢保存阶段被新 worker 接管后仍写入项目。受保护 worker batch 入口会从持久任务里读取可认领任务，并使用任务自身的 ownerId 执行，不接受浏览器传入的 runtime model key；`GET` 入口给 Vercel Cron 使用，`POST` 入口给维护者手动触发使用。正式资产仍保存在项目里，任务只负责执行 envelope 和恢复入口。
 
 ## 5. 工具体系
 
@@ -449,7 +449,7 @@ type EvidenceSource = {
 - 已完成 v1：数学验证摘要会把暂不支持自动复算的复杂表达式标记为人工复核，不把它误判为通过或失败。
 - 已完成 v1：Agent 执行记录支持筛选、展开完整元数据、导出单次 AgentRun Markdown 审计记录，并可导出单项目级审计报告。
 - 已完成 v1：项目级 Markdown 审计报告会包含版本复盘摘要、数学验证摘要和章节复核摘要。
-- 待加强：checkpoint 续跑目前是“从失败步骤重试”，不是恢复半个 HTTP 请求或后台长任务进程；审计导出已覆盖单项目上下文，跨项目、跨版本比较报告和更强的自动修复仍需要继续拆成可审阅的 Agent 化步骤。
+- 待加强：checkpoint 续跑目前是“从失败步骤重试”，不是恢复半个 HTTP 请求；后台持久任务 v1 已有任务表、任务 store、显式 run route、受保护 worker GET/POST batch route、Vercel Cron 配置、服务端项目读写 wrapper、前端轮询恢复、任务密钥防御、项目归属校验、任务结果按当前 run 收口、runner 租约护栏、步骤级数学产物 checkpoint 回写、任务级审计展示和真实 DB lifecycle probe。审计导出已覆盖单项目上下文，跨项目、跨版本比较报告和更强的自动修复仍需要继续拆成可审阅的 Agent 化步骤。
 
 ### Phase 7: 长程研究记忆与版本管理
 
@@ -473,7 +473,7 @@ type EvidenceSource = {
 - 已完成 v1：单项目审计报告可以汇总联网搜索、方向选择、待审核修改建议、Agent 执行记录和资产审核历史。
 - 已完成 v1：单项目审计报告会包含资产版本影响复盘，把每次审核后的受影响资产、复核重点和建议下一步放回项目上下文。
 - 已完成 v1：单项目审计报告会包含项目级版本复盘摘要、数学验证摘要和章节复核摘要，方便一次导出后看到研究风险和下一步。
-- 待加强：更完整的跨版本比较、跨项目审计报告、后台任务级续跑和批量恢复工具。
+- 待加强：更完整的跨版本比较、跨项目审计报告、后台任务级续跑 UI 和批量恢复工具。
 
 ## 8. 当前产品化主线
 
@@ -483,12 +483,30 @@ type EvidenceSource = {
 
 1. 上线基础包：已补齐生产环境配置说明、测试脚本、发布检查清单、release readiness helper 和真实浏览器冒烟检查要求。
 2. 章节级论文 Agent v2：已支持选择单个章节、生成 `sections[sectionId]` 级 paper patch，并通过应用/拒绝流程保证只影响目标章节。
-3. CAS/SymPy v2：已将数学验证结果结构化为通过、失败、条件不足、暂不支持和人工复核；当前新增受限外部 SymPy 偏导复算、FOC 残差复核、显式 FOC 独立求解对照、从安全结构化利润函数生成 FOC 残差的入口，以及 Markdown 导出的可复核 SymPy 脚本，但尚未把外部 SymPy 扩展为任意模型的完整均衡求解器。
-4. 长任务续跑 v1：已记录 action、step checkpoint、patch id 和 stop reason；恢复时沿用旧 AgentRun，重复重试不会重复生成同一成功步骤的待审核 patch。
+3. CAS/SymPy v2：已将数学验证结果结构化为通过、失败、条件不足、暂不支持和人工复核；当前新增受限外部 SymPy 偏导复算、FOC 残差复核、显式 FOC 独立求解对照、从安全结构化利润函数生成 FOC 残差的入口，以及 Markdown 导出的可复核 SymPy 脚本。均衡复核即使跳过执行，也会保留 `generated_foc_system`、`sympy_residual_check`、`solver_attempt` 和 `sympy_solve_check` 的人工复核产物，但尚未把外部 SymPy 扩展为任意模型的完整均衡求解器。
+4. 长任务续跑 v1：已记录 action、step checkpoint、patch id 和 stop reason；恢复时沿用旧 AgentRun，重复重试不会重复生成同一成功步骤的待审核 patch。后台持久任务 v1 已新增 `agent_tasks` 表、统一 task store、显式任务 run wrapper、API 任务入口、受保护 worker GET/POST batch 入口、Vercel Cron 配置、前端轮询刷新/页面恢复、任务密钥防御、项目归属校验、任务结果按当前 run 收口、runner 租约续租/写入前验证、任务级执行记录 UI、步骤级数学产物 checkpoint 回写、worker route 观测输出和真实 DB lifecycle probe；边界仍是不恢复半个 HTTP 请求。
 5. 产品交付包：已补齐课题组试用指南、维护者 runbook、demo 场景和反馈模板。
 6. 小范围测试准备：已定义 10-15 人试用窗口、成功指标、停止条件、试用记录模板和上线前 release checklist。
 
 本轮详细实施计划见 [docs/productization-release-plan.md](productization-release-plan.md)。
+
+## 当前执行路线调整：求解内核优先
+
+根据最新评审，本轮剩余工作优先级调整为：
+
+1. 博弈论求解内核 Agent 化：从模型资产编译出可审计的求解系统，生成 FOC，发起受限 solver attempt，复核残差和独立解集，并把风险写入待审核 patch。
+2. 步骤级数学产物保存：不只保存 AgentRun 状态，还保存 `compiled_game_system`、`generated_foc_system`、`solver_attempt` 等中间数学产物，便于用户追问“均衡到底怎么算出来的”。
+3. 受限动态 planner：求解阶段根据模型缺口、FOC 是否可执行、SymPy 是否支持、复核是否失败，选择补模型、重求解、修复候选或转人工复核。
+4. 后台持久任务：已把任务级执行记录 UI、步骤级数学产物 checkpoint 回写、受保护 worker 和真实 DB lifecycle probe 接上；定时触发 worker 已接入 Vercel Cron，剩余边界是完整托管队列和半请求恢复。
+5. 跨项目记忆与更自由论文写作：留到最后，避免在求解链路还不够扎实之前扩大系统自由度。
+
+已落地的第一步：均衡复核会保存 `compiled_game_system`、`generated_foc_system`、`sympy_residual_check`、`solver_attempt` 和 `sympy_solve_check`；即使输入不可执行，也会以人工复核状态保存跳过原因。结构化利润函数能安全求导时，后续残差回代和 `sympy.solve` 对照会优先使用模型生成的 FOC，而不是只复核模型给出的候选 FOC 文本。受限 planner 已能根据产物区分补模型、修复均衡候选、完整重求和人工复核。
+
+本轮推进：均衡 runner 已开始执行内核决策，而不只是记录建议。`repair_model` 会生成待审核模型修复 patch，并把关联数学产物挂到同一 patch 上；`repair_equilibrium_candidate` 仍只允许一次有边界候选修复；如果候选修复后暴露模型输入缺口，runner 会切回模型修复 patch，而不是继续创建不可信的均衡 patch；`review_manually` 会保留均衡 patch 和人工复核说明，不把 SymPy 暂不支持误当成失败。主链路 flow/UI 在任意待审核 patch 存在时关闭新的生成入口，性质分析 runner 在缺少已应用 `solved` 均衡时直接停住，避免重复生成和越级推进。
+
+步骤级数学产物保存已接到执行链路：`reviewEquilibriumWithSympy` 生成 `compiled_game_system`、`generated_foc_system`、`sympy_residual_check`、`solver_attempt` 等产物时会增量发出事件；均衡 runner 将这些事件转交给任务执行器；`agent_tasks.checkpoints` 在任务运行中写入产物 id、类型、状态和快照。这个能力先服务于任务级恢复和审计，不改变正式资产写入规则，模型/均衡/性质/论文仍必须通过待审核 patch。
+
+已落地的产品化展示：右侧均衡页会展示最新待审核均衡候选，并同步展示该候选关联的数学产物。用户可以先检查闭式解、FOC、残差回代、solver attempt 和独立求解记录，再决定是否应用 patch；应用前仍不会覆盖正式均衡资产，也不会解锁性质分析。
 
 ## 9. UI 方向
 

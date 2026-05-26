@@ -226,6 +226,11 @@ export function getResearchFlowState(
       (patch) => patch.kind === "paper" && patch.status === "proposed"
     )
   );
+  const hasPendingReviewPatch =
+    hasPendingModelPatch ||
+    hasPendingEquilibriumPatch ||
+    hasPendingPropertiesPatch ||
+    hasPendingPaperPatch;
   const hasStalePropertyAnalyses =
     hasPropertyAnalyses && assetFreshness.properties === "stale";
   const isEquilibriumStale =
@@ -234,10 +239,11 @@ export function getResearchFlowState(
   const canConfirmModel =
     Boolean(project?.hotellingModel) &&
     pendingKind === "answer_model_question" &&
-    !hasPendingModelPatch &&
+    !hasPendingReviewPatch &&
     !hasPropertyAnalyses;
   const canSolveEquilibrium =
     Boolean(project?.hotellingModel) &&
+    !hasPendingReviewPatch &&
     (pendingKind === "solve_equilibrium" ||
       equilibriumStatus === "symbolic_failure") &&
     (!hasPropertyAnalyses ||
@@ -247,8 +253,8 @@ export function getResearchFlowState(
   const canAnalyzeProperties =
     pendingKind === "analyze_properties" &&
     hasSolvableEquilibrium &&
-    !hasPendingEquilibriumPatch &&
-    !hasPropertyAnalyses;
+    !hasPendingReviewPatch &&
+    (!hasPropertyAnalyses || hasStalePropertyAnalyses);
   const canDraftPaper =
     hasPropertyAnalyses &&
     hasSolvableEquilibrium &&

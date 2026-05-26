@@ -54,6 +54,12 @@ import {
   type MathVerificationSummaryStatus,
 } from "@/lib/research-agent/math-verification-summary";
 import {
+  getMathArtifactKindLabel,
+  getMathArtifactStatusLabel,
+  selectEquilibriumMathArtifactsForDisplay,
+  selectPendingEquilibriumCandidate,
+} from "@/lib/research-agent/equilibrium-display";
+import {
   buildPaperSectionReview,
   type PaperSectionReview,
   type PaperSectionReviewStatus,
@@ -78,6 +84,7 @@ import {
 import type {
   AgentCheckpoint,
   AgentRun,
+  AgentTask,
   AgentTraceEvent,
   EvidenceSource,
   ResearchAssetKind,
@@ -96,6 +103,8 @@ type ResearchAssetsPanelProps = {
   isDraftingPaper?: boolean;
   revisingPaperSectionId?: string | null;
   isContinuingSafely?: boolean;
+  activeAgentTask?: AgentTask | null;
+  agentTasks?: AgentTask[];
   onAdopt?: (directionId: string) => void;
   onConfirmModel?: () => void;
   onSafeContinue?: () => void;
@@ -145,6 +154,8 @@ function ResearchAssetsPanelContent({
   isDraftingPaper,
   revisingPaperSectionId,
   isContinuingSafely,
+  activeAgentTask,
+  agentTasks,
   onAdopt,
   onConfirmModel,
   onSafeContinue,
@@ -168,6 +179,12 @@ function ResearchAssetsPanelContent({
   const analyses = project?.propertyAnalyses ?? [];
   const model = project?.hotellingModel;
   const equilibrium = project?.equilibriumResult;
+  const pendingEquilibriumCandidate = selectPendingEquilibriumCandidate(
+    session.assetPatches
+  );
+  const equilibriumMathArtifacts = selectEquilibriumMathArtifactsForDisplay(
+    session.mathArtifacts
+  );
   const nextRecommendation = recommendNextAgentStep(project);
   const safeContinuationPlan = planSafeContinuation(project);
   const recoverySuggestion = getAgentRecoverySuggestion(project);
@@ -179,11 +196,9 @@ function ResearchAssetsPanelContent({
   const isSymbolicFailure = equilibrium?.status === "symbolic_failure";
   const hasThinAnalysis = analyses.length > 0 && analyses.length < 3;
   const canSolveNow =
-    Boolean(model && onSolveEquilibrium) &&
-    (flow.canSolveEquilibrium || flow.isEquilibriumStale);
+    Boolean(model && onSolveEquilibrium) && flow.canSolveEquilibrium;
   const canAnalyzeNow =
-    Boolean(equilibrium && onAnalyzeProperties) &&
-    (flow.canAnalyzeProperties || flow.isPropertyAnalysisStale);
+    Boolean(equilibrium && onAnalyzeProperties) && flow.canAnalyzeProperties;
   const canDraftPaper = Boolean(onDraftPaper) && flow.canDraftPaper;
   const nextRecommendationBusy = getNextRecommendationBusyState({
     recommendation: nextRecommendation,
@@ -191,6 +206,13 @@ function ResearchAssetsPanelContent({
     isSolvingEquilibrium,
     isAnalyzingProperties,
     isDraftingPaper,
+  });
+  const visibleAgentTask =
+    activeAgentTask?.projectId === project?.id ? activeAgentTask : null;
+  const visibleAgentTasks = getVisibleAgentTasks({
+    tasks: agentTasks ?? [],
+    activeTask: visibleAgentTask,
+    projectId: project?.id,
   });
   const handleRunNextRecommendation = () => {
     setActiveTab(nextRecommendation.targetTab);
@@ -312,6 +334,13 @@ function ResearchAssetsPanelContent({
           onRunRecovery={onRunRecovery}
         />
 
+        {visibleAgentTasks.length > 0 ? (
+          <AgentTaskAuditPanel
+            tasks={visibleAgentTasks}
+            activeTaskId={visibleAgentTask?.id}
+          />
+        ) : null}
+
         <PendingAssetPatches
           patches={session.assetPatches ?? []}
           onApply={handleApplyAssetPatch}
@@ -343,12 +372,13 @@ function ResearchAssetsPanelContent({
           <EquilibriumTab
             equilibriumStatusLabel={flow.equilibriumStatusLabel}
             equilibrium={equilibrium}
-            isSymbolicFailure={isSymbolicFailure}
             isStale={flow.isEquilibriumStale}
             canSolveNow={canSolveNow}
             isSolvingEquilibrium={isSolvingEquilibrium}
             onSolveEquilibrium={onSolveEquilibrium}
             mathSummary={mathSummary}
+            pendingEquilibriumCandidate={pendingEquilibriumCandidate}
+            mathArtifacts={equilibriumMathArtifacts}
           />
         ) : null}
 
@@ -393,6 +423,7 @@ function ResearchAssetsPanelContent({
             isEquilibriumStale={flow.isEquilibriumStale}
             isPropertyAnalysisStale={flow.isPropertyAnalysisStale}
             mathSummary={mathSummary}
+            mathArtifacts={equilibriumMathArtifacts}
           />
         ) : null}
       </div>
@@ -865,6 +896,290 @@ function NextStepSuggestion({
   );
 }
 
+function AgentTaskAuditPanel({
+  tasks,
+  activeTaskId,
+}: {
+  tasks: AgentTask[];
+  activeTaskId?: string;
+}) {
+  const activeTask =
+    tasks.find((task) => task.id === activeTaskId) ?? tasks[0] ?? null;
+  const recentTasks = activeTask
+    ? tasks.filter((task) => task.id !== activeTask.id)
+    : tasks;
+  const shouldOpenHistory = recentTasks.some(
+    (task) => task.status === "running" || task.status === "failed"
+  );
+
+  return (
+    <AssetSection
+      title="Agent 任务审计"
+      description="这里记录后台任务、检查点、数学产物和最终补丁，方便确认求解到底跑到了哪一步。"
+    >
+      <div className="space-y-3">
+        {activeTask ? <AgentTaskStatusCard task={activeTask} /> : null}
+        {recentTasks.length > 0 ? (
+          <details
+            className="rounded-md border bg-muted/20 px-3 py-2"
+            open={shouldOpenHistory}
+          >
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+              最近任务历史（{recentTasks.length}）
+            </summary>
+            <div className="mt-3 space-y-3">
+              {recentTasks.map((task) => (
+                <AgentTaskStatusCard key={task.id} task={task} />
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </div>
+    </AssetSection>
+  );
+}
+
+function AgentTaskStatusCard({ task }: { task: AgentTask }) {
+  const isRunning = task.status === "queued" || task.status === "running";
+  const latestCheckpoint = task.checkpoints.at(-1);
+  const result = getAgentTaskResult(task.result);
+  const displayedCheckpoints = task.checkpoints.slice(-6).reverse();
+
+  return (
+    <div className="rounded-md border bg-background px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              label={formatAgentTaskStatus(task.status)}
+              tone={
+                task.status === "completed"
+                  ? "success"
+                  : task.status === "failed"
+                    ? "warning"
+                    : "neutral"
+              }
+            />
+            <p className="text-sm font-semibold leading-6">
+              {formatAgentTaskAction(task.action)}
+            </p>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Task {shortenId(task.id)}
+            {task.workerId ? ` · worker ${shortenId(task.workerId)}` : ""}
+            {task.leaseUntil ? ` · lease ${formatTimestamp(task.leaseUntil)}` : ""}
+          </p>
+          {task.error ? (
+            <p className="mt-2 rounded-md border border-[oklch(0.82_0.04_85)] bg-[oklch(0.985_0.02_85)] px-2.5 py-2 text-xs leading-5 text-[oklch(0.38_0.07_65)]">
+              {task.error}
+            </p>
+          ) : null}
+        </div>
+        {isRunning ? (
+          <Loader2 className="mt-1 size-4 shrink-0 animate-spin text-muted-foreground" />
+        ) : null}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] leading-5">
+        <InfoTile label="检查点" value={`${task.checkpoints.length}`} />
+        <InfoTile label="修改建议" value={`${result?.patchIds?.length ?? 0}`} />
+        <InfoTile label="数学产物" value={`${result?.mathArtifactIds?.length ?? 0}`} />
+      </div>
+
+      {latestCheckpoint ? (
+        <div className="mt-3 rounded-md border bg-muted/25 px-2.5 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">
+                {latestCheckpoint.title}
+              </p>
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                最近检查点 · {formatAgentStepStatus(latestCheckpoint.status)} ·{" "}
+                {formatTimestamp(latestCheckpoint.createdAt)}
+              </p>
+            </div>
+            <StatusBadge
+              label={formatAgentStepStatus(latestCheckpoint.status)}
+              tone={getCheckpointTone(latestCheckpoint.status)}
+            />
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 rounded-md border bg-muted/25 px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+          任务已进入队列，产生检查点后会在这里显示。
+        </p>
+      )}
+
+      {displayedCheckpoints.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            执行时间线
+          </p>
+          {displayedCheckpoints.map((checkpoint) => (
+            <AgentTaskCheckpointItem
+              key={checkpoint.id}
+              checkpoint={checkpoint}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getVisibleAgentTasks({
+  tasks,
+  activeTask,
+  projectId,
+}: {
+  tasks: AgentTask[];
+  activeTask?: AgentTask | null;
+  projectId?: string;
+}) {
+  if (!projectId) return [];
+
+  const merged = new Map<string, AgentTask>();
+  for (const task of tasks) {
+    if (task.projectId === projectId) {
+      merged.set(task.id, task);
+    }
+  }
+  if (activeTask?.projectId === projectId) {
+    merged.set(activeTask.id, activeTask);
+  }
+
+  return [...merged.values()]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 5);
+}
+
+function AgentTaskCheckpointItem({
+  checkpoint,
+}: {
+  checkpoint: AgentTask["checkpoints"][number];
+}) {
+  const metadata = checkpoint.metadata ?? {};
+  const artifactId = getStringMetadata(metadata, "mathArtifactId");
+  const artifactKind = getStringMetadata(metadata, "mathArtifactKind");
+  const patchId = getStringMetadata(metadata, "patchId");
+  const runId = getStringMetadata(metadata, "runId");
+  const snapshot = metadata.mathArtifactSnapshot;
+
+  return (
+    <div className="rounded-md border bg-card px-2.5 py-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="break-words text-xs font-medium">{checkpoint.title}</p>
+          <p className="text-[11px] leading-5 text-muted-foreground">
+            {formatAgentStepStatus(checkpoint.status)} ·{" "}
+            {formatTimestamp(checkpoint.createdAt)}
+          </p>
+        </div>
+        <StatusBadge
+          label={formatAgentStepStatus(checkpoint.status)}
+          tone={getCheckpointTone(checkpoint.status)}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+        {runId ? <InlineMeta label="run" value={shortenId(runId)} /> : null}
+        {patchId ? <InlineMeta label="patch" value={shortenId(patchId)} /> : null}
+        {artifactKind ? <InlineMeta label="artifact" value={artifactKind} /> : null}
+        {artifactId ? <InlineMeta label="id" value={shortenId(artifactId)} /> : null}
+      </div>
+      {snapshot ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+            数学产物快照
+          </summary>
+          <pre className="mt-2 max-h-36 overflow-auto rounded-md bg-muted/40 p-2 text-[11px] leading-5 text-muted-foreground">
+            {formatJsonSnippet(snapshot)}
+          </pre>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function InlineMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 rounded-sm border bg-background px-1.5 py-0.5">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-all font-medium text-foreground">
+        {value}
+      </span>
+    </span>
+  );
+}
+
+function getAgentTaskResult(result: AgentTask["result"]) {
+  if (!result || typeof result !== "object") return undefined;
+  return result as {
+    patchIds?: string[];
+    mathArtifactIds?: string[];
+  };
+}
+
+function getStringMetadata(
+  metadata: Record<string, unknown>,
+  key: string
+) {
+  const value = metadata[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getCheckpointTone(status: AgentTask["checkpoints"][number]["status"]) {
+  return status === "failed"
+    ? "warning"
+    : status === "completed"
+      ? "success"
+      : "neutral";
+}
+
+function shortenId(value: string) {
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function formatJsonSnippet(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatAgentTaskAction(action: AgentTask["action"]) {
+  switch (action) {
+    case "build_model":
+      return "模型生成任务";
+    case "solve_equilibrium":
+      return "符号均衡求解任务";
+    case "analyze_properties":
+      return "性质分析任务";
+    case "draft_paper":
+      return "论文草稿任务";
+    case "revise_paper_section":
+      return "章节改写任务";
+    default:
+      return "Agent 任务";
+  }
+}
+
+function formatAgentTaskStatus(status: AgentTask["status"]) {
+  switch (status) {
+    case "queued":
+      return "排队中";
+    case "running":
+      return "执行中";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+  }
+}
+
 function AgentRecoveryNotice({
   suggestion,
   isBusy,
@@ -1120,7 +1435,8 @@ function getResearchAssetsTabForPatchKind(kind: ResearchAssetKind): ResearchAsse
 function EquilibriumTab({
   equilibriumStatusLabel,
   equilibrium,
-  isSymbolicFailure,
+  pendingEquilibriumCandidate,
+  mathArtifacts,
   isStale,
   canSolveNow,
   isSolvingEquilibrium,
@@ -1129,13 +1445,18 @@ function EquilibriumTab({
 }: {
   equilibriumStatusLabel: string;
   equilibrium?: ResearchProject["equilibriumResult"];
-  isSymbolicFailure: boolean;
+  pendingEquilibriumCandidate?: ResearchProject["equilibriumResult"];
+  mathArtifacts: NonNullable<ResearchSession["mathArtifacts"]>;
   isStale: boolean;
   canSolveNow: boolean;
   isSolvingEquilibrium?: boolean;
   onSolveEquilibrium?: () => void;
   mathSummary: MathVerificationSummary;
 }) {
+  const displayedEquilibrium = pendingEquilibriumCandidate ?? equilibrium;
+  const displayedIsSymbolicFailure =
+    displayedEquilibrium?.status === "symbolic_failure";
+  const isPendingCandidate = Boolean(pendingEquilibriumCandidate);
   const primaryAction = getResearchPrimaryAction(
     {
       canConfirmModel: false,
@@ -1151,9 +1472,15 @@ function EquilibriumTab({
       <AssetSection title="均衡求解状态">
         <StatusBadge
           label={isStale ? "模型已修改，需要重算均衡" : equilibriumStatusLabel}
-          tone={isStale || isSymbolicFailure ? "warning" : equilibrium ? "success" : "neutral"}
+          tone={
+            isStale || displayedIsSymbolicFailure
+              ? "warning"
+              : displayedEquilibrium
+                ? "success"
+                : "neutral"
+          }
         />
-        {isSymbolicFailure ? (
+        {displayedIsSymbolicFailure ? (
           <WarningBox text="当前没有得到可作为论文结论的闭式均衡解。这里仅保留一阶条件、约束和隐式系统草稿；需要收窄模型或重新求解后，才应继续性质分析。" />
         ) : null}
         {isStale ? (
@@ -1169,24 +1496,35 @@ function EquilibriumTab({
 
       <MathVerificationSummaryPanel summary={mathSummary} compact />
 
-      {equilibrium ? (
+      <MathArtifactsPanel artifacts={mathArtifacts} />
+
+      {displayedEquilibrium ? (
         <>
-          <AssetSection title="均衡概念">
+          {isPendingCandidate ? (
+            <AssetSection title="待审核均衡候选">
+              <WarningBox text="这版均衡已经生成并进入待审核修改建议。应用前，它还不会覆盖正式均衡资产，也不会解锁性质分析。" />
+            </AssetSection>
+          ) : null}
+
+          <AssetSection title={isPendingCandidate ? "候选均衡概念" : "均衡概念"}>
             <MarkdownRenderer
-              content={equilibrium.concept}
+              content={displayedEquilibrium.concept}
               className="paperforge-markdown text-sm leading-6 text-muted-foreground"
             />
           </AssetSection>
 
           <AssetSection title="一阶条件">
-            <FormulaList items={equilibrium.focs} emptyText="尚未生成一阶条件。" />
+            <FormulaList
+              items={displayedEquilibrium.focs}
+              emptyText="尚未生成一阶条件。"
+            />
           </AssetSection>
 
-          {isSymbolicFailure ? (
+          {displayedIsSymbolicFailure ? (
             <AssetSection title="未得到闭式解">
-              {equilibrium.closedForm ? (
+              {displayedEquilibrium.closedForm ? (
                 <MarkdownRenderer
-                  content={equilibrium.closedForm}
+                  content={displayedEquilibrium.closedForm}
                   className="paperforge-markdown text-sm leading-6 text-muted-foreground"
                 />
               ) : (
@@ -1195,8 +1533,8 @@ function EquilibriumTab({
             </AssetSection>
           ) : (
             <AssetSection title="闭式解">
-              {equilibrium.closedForm ? (
-                <MathArtifact formula={equilibrium.closedForm} />
+              {displayedEquilibrium.closedForm ? (
+                <MathArtifact formula={displayedEquilibrium.closedForm} />
               ) : (
                 <EmptyLine text="尚未得到可展示的闭式解。" />
               )}
@@ -1204,17 +1542,17 @@ function EquilibriumTab({
           )}
 
           <AssetSection title="推导步骤">
-            <OrderedList items={equilibrium.solvingSteps} />
+            <OrderedList items={displayedEquilibrium.solvingSteps} />
           </AssetSection>
 
           <AssetSection title="存在条件">
-            <OrderedList items={equilibrium.conditions} />
+            <OrderedList items={displayedEquilibrium.conditions} />
           </AssetSection>
 
-          {equilibrium.warnings.length > 0 ? (
+          {displayedEquilibrium.warnings.length > 0 ? (
             <AssetSection title="注意">
               <div className="space-y-2">
-                {equilibrium.warnings.map((warning) => (
+                {displayedEquilibrium.warnings.map((warning) => (
                   <WarningBox key={warning} text={warning} />
                 ))}
               </div>
@@ -1446,6 +1784,7 @@ function QualityTab({
   isEquilibriumStale,
   isPropertyAnalysisStale,
   mathSummary,
+  mathArtifacts,
 }: {
   session: ResearchSession;
   equilibrium?: ResearchProject["equilibriumResult"];
@@ -1455,6 +1794,7 @@ function QualityTab({
   isEquilibriumStale: boolean;
   isPropertyAnalysisStale: boolean;
   mathSummary: MathVerificationSummary;
+  mathArtifacts: NonNullable<ResearchSession["mathArtifacts"]>;
 }) {
   return (
     <div className="space-y-5">
@@ -1482,11 +1822,69 @@ function QualityTab({
 
       <MathVerificationSummaryPanel summary={mathSummary} />
 
+      <MathArtifactsPanel artifacts={mathArtifacts} />
+
       <AssetSection title="下一步">
         <OrderedList items={session.assetSummary.nextActions} />
       </AssetSection>
     </div>
   );
+}
+
+function MathArtifactsPanel({
+  artifacts,
+}: {
+  artifacts: NonNullable<ResearchSession["mathArtifacts"]>;
+}) {
+  const visibleArtifacts = artifacts.slice(0, 8);
+  if (visibleArtifacts.length === 0) return null;
+
+  return (
+    <AssetSection
+      title="数学产物"
+      description="保存均衡求解过程中的候选、FOC、残差回代和独立求解对照。"
+    >
+      <div className="space-y-2">
+        {visibleArtifacts.map((artifact) => (
+          <article
+            key={artifact.id}
+            className="rounded-md border bg-background px-3 py-2 text-xs leading-5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-foreground">{artifact.title}</p>
+              <StatusBadge
+                label={getMathArtifactStatusLabel(artifact.status)}
+                tone={
+                  artifact.status === "passed"
+                    ? "success"
+                    : artifact.status === "failed"
+                      ? "warning"
+                      : "neutral"
+                }
+              />
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {getMathArtifactKindLabel(artifact.kind)} · {artifact.stepId}
+              {artifact.patchId ? ` · ${artifact.patchId}` : ""}
+            </p>
+            {artifact.output !== undefined ? (
+              <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-muted/45 px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+                {formatArtifactPreview(artifact.output)}
+              </pre>
+            ) : null}
+          </article>
+        ))}
+      </div>
+    </AssetSection>
+  );
+}
+
+function formatArtifactPreview(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function FormulaList({ items, emptyText }: { items: string[]; emptyText: string }) {

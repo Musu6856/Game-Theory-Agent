@@ -81,7 +81,10 @@ test("applies a proposed properties patch to the right-side property analyses", 
   assert.equal(nextProject.propertyAnalyses?.[1].id, "alpha-s-subsidy");
   assert.equal(nextProject.researchSession?.phase, "analysis");
   assert.equal(nextProject.researchSession?.assetFreshness?.properties, "fresh");
-  assert.equal(nextProject.researchSession?.assetSummary.pendingDecision, undefined);
+  assert.equal(
+    nextProject.researchSession?.assetSummary.pendingDecision?.kind,
+    "draft_paper"
+  );
   assert.ok(
     nextProject.researchSession?.messages
       .at(-1)
@@ -534,6 +537,54 @@ test("applying a symbolic failure equilibrium patch keeps solving as the next st
   );
   assert.equal(flow.canAnalyzeProperties, false);
   assert.equal(flow.canSolveEquilibrium, true);
+});
+
+test("invalid equilibrium patch paths are not marked as applied", () => {
+  const project = createSolvedProject();
+  const originalClosedForm = project.equilibriumResult?.closedForm;
+  const patch = {
+    id: "patch-equilibrium-invalid-path",
+    kind: "equilibrium",
+    summary: "这条 patch 使用了不支持的均衡路径",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "equilibriumResult.unknownField",
+        value: "这不应该被静默应用。",
+      },
+    ],
+  };
+  const projectWithPatch = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
+    },
+  };
+
+  const nextProject = applyResearchAssetPatchToProject(projectWithPatch, patch, {
+    now: 1710000000002,
+  });
+
+  assert.equal(nextProject.equilibriumResult?.closedForm, originalClosedForm);
+  assert.equal(
+    nextProject.researchSession?.assetPatches?.find(
+      (item) => item.id === patch.id
+    )?.status,
+    "proposed"
+  );
+  assert.equal(
+    Boolean(nextProject.researchSession?.assetVersionHistory?.some(
+      (event) => event.patchId === patch.id && event.action === "applied_patch"
+    )),
+    false
+  );
+  assert.match(
+    nextProject.researchSession?.messages.at(-1)?.content ?? "",
+    /没有识别到可应用的修改路径/
+  );
 });
 
 test("rejecting a proposed asset patch records a version history event", () => {

@@ -1,5 +1,7 @@
 import type { GameTheoryModel } from "./types";
 import type {
+  AgentTask,
+  AgentTaskInput,
   ModelSourceMetadata,
   ModelSourceSettings,
   ResearchProject,
@@ -200,6 +202,64 @@ export async function generateResearchProjectApi(
       body: JSON.stringify(payload),
     })
   );
+}
+
+export async function createAgentTaskApi(
+  input: AgentTaskInput
+): Promise<AgentTask> {
+  const inputForStorage = { ...input };
+  delete inputForStorage.runtimeModelSource;
+
+  const data = await readJson<{ task: AgentTask }>(
+    await fetch(`${BASE_URL}/research/agent/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: inputForStorage }),
+    })
+  );
+
+  return data.task;
+}
+
+export async function fetchAgentTaskApi(taskId: string): Promise<AgentTask> {
+  const data = await readJson<{ task: AgentTask }>(
+    await fetch(`${BASE_URL}/research/agent/tasks/${encodeURIComponent(taskId)}`)
+  );
+
+  return data.task;
+}
+
+export async function listAgentTasksForProjectApi(
+  projectId: string
+): Promise<AgentTask[]> {
+  const data = await readJson<{ tasks: AgentTask[] }>(
+    await fetch(
+      `${BASE_URL}/research/agent/tasks?projectId=${encodeURIComponent(projectId)}`
+    )
+  );
+
+  return data.tasks;
+}
+
+export async function runAgentTaskApi(
+  taskId: string,
+  runtimeModelSource?: ModelSourceSettings
+): Promise<AgentTask> {
+  const init: RequestInit = {
+    method: "POST",
+  };
+  if (runtimeModelSource) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify({ runtimeModelSource });
+  }
+
+  const data = await readJson<{ task: AgentTask }>(
+    await fetch(`${BASE_URL}/research/agent/tasks/${encodeURIComponent(taskId)}/run`, {
+      ...init,
+    })
+  );
+
+  return data.task;
 }
 
 export interface ProviderHealthResult {

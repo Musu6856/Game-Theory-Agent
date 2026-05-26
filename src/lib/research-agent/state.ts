@@ -19,6 +19,11 @@ export type {
   EvidenceSourceType,
 };
 
+export type AgentCheckpointSink = (
+  checkpoint: AgentCheckpoint,
+  run: AgentRun
+) => Promise<void> | void;
+
 export function createAgentRun({
   id,
   action,
@@ -90,6 +95,23 @@ export function updateStepStatus(
       : run.checkpoints,
     ...(status === "failed" ? { status: "failed" as const, completedAt: now } : {}),
   };
+}
+
+export async function updateStepStatusAndNotify(
+  run: AgentRun,
+  stepId: string,
+  status: AgentStep["status"],
+  now = Date.now(),
+  metadata?: Record<string, unknown>,
+  onCheckpoint?: AgentCheckpointSink
+): Promise<AgentRun> {
+  const checkpointIndex = run.checkpoints?.length ?? 0;
+  const nextRun = updateStepStatus(run, stepId, status, now, metadata);
+  const checkpoint = nextRun.checkpoints?.[checkpointIndex];
+  if (checkpoint) {
+    await onCheckpoint?.(checkpoint, nextRun);
+  }
+  return nextRun;
 }
 
 export function completeAgentRun(run: AgentRun, now = Date.now()): AgentRun {

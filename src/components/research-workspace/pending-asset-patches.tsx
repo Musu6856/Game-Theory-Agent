@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CheckCheck, X } from "lucide-react";
+import { AlertCircle, Check, CheckCheck, X } from "lucide-react";
 
 import type { ResearchAssetPatch } from "@/lib/types";
 import {
@@ -38,14 +38,20 @@ export function PendingAssetPatches({
 
   return (
     <section className={getPendingAssetPatchPanelClassName()}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-xs font-medium text-muted-foreground">
-          待应用修改
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <AlertCircle className="size-3.5 text-amber-600" />
+            待审核并应用
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Agent 已生成候选结果；点“应用”后才会写入正式资产，并解锁下一步。
+          </p>
         </div>
         {quickReviewPatches.length > 0 ? (
           <button
             type="button"
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-300/70 bg-emerald-50 px-2 text-xs font-medium text-emerald-800 disabled:opacity-50 dark:border-emerald-400/35 dark:bg-emerald-500/15 dark:text-emerald-200"
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-emerald-300/70 bg-emerald-50 px-2 text-xs font-medium text-emerald-800 disabled:opacity-50 dark:border-emerald-400/35 dark:bg-emerald-500/15 dark:text-emerald-200"
             disabled={!onApplyQuickReview}
             onClick={() =>
               onApplyQuickReview?.(quickReviewPatches.map((patch) => patch.id))
@@ -59,6 +65,7 @@ export function PendingAssetPatches({
       <div className="space-y-2">
         {proposed.map((patch) => {
           const reviewLoad = getResearchAssetPatchReviewLoad(patch);
+          const gateDescription = getPatchGateDescription(patch.kind);
 
           return (
             <article key={patch.id} className="rounded-md border bg-background p-3">
@@ -67,6 +74,9 @@ export function PendingAssetPatches({
                   <div className="text-sm font-medium">{patch.summary}</div>
                   <div className="mt-1 text-xs leading-5 text-muted-foreground">
                     {getResearchAssetPatchSummaryLine(patch)}
+                  </div>
+                  <div className="mt-2 rounded-md border border-amber-200/80 bg-amber-50/70 px-2.5 py-2 text-xs leading-5 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
+                    {gateDescription}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
@@ -112,6 +122,19 @@ export function PendingAssetPatches({
       </div>
     </section>
   );
+}
+
+function getPatchGateDescription(kind: ResearchAssetPatch["kind"]) {
+  switch (kind) {
+    case "model":
+      return "这是模型设定候选。应用后才会更新右侧模型，并允许重新进入符号求解。";
+    case "equilibrium":
+      return "这是均衡求解候选。应用后才会成为正式均衡，并解锁性质分析。";
+    case "properties":
+      return "这是性质分析候选。应用后才会替换正式命题组，并解锁论文输出。";
+    case "paper":
+      return "这是论文草稿候选。应用后才会写入正式论文输出。";
+  }
 }
 
 function ReviewLoadBadge({

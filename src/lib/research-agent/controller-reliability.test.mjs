@@ -180,6 +180,164 @@ test("recommendNextAgentStep prioritizes failed math verification", () => {
   assert.match(recommendation.reason, /数学验证/);
 });
 
+test("recommendNextAgentStep uses saved failed equilibrium artifacts to re-solve", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "研究平台佣金",
+    refinedIdea: "平台佣金与补贴",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: createEquilibrium(),
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+        pendingDecision: {
+          kind: "analyze_properties",
+          prompt: "均衡已生成。",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-failed-solve",
+          runId: "agent-equilibrium",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "sympy_solve_check",
+          title: "SymPy 独立求解对照",
+          status: "failed",
+          source: "sympy",
+          output: { solutions: [] },
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.action?.kind, "solve_equilibrium");
+  assert.match(recommendation.reason, /数学产物|重新/);
+});
+
+test("recommendNextAgentStep uses compiled system gaps to repair the model first", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "研究平台佣金",
+    refinedIdea: "平台佣金与补贴",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: createEquilibrium(),
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+        pendingDecision: {
+          kind: "analyze_properties",
+          prompt: "均衡已生成。",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-compiled-gap",
+          runId: "agent-equilibrium",
+          stepId: "prepare-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "compiled_game_system",
+          title: "Compiled game system",
+          status: "manual_review",
+          source: "model",
+          output: {
+            objectives: [],
+            issues: [
+              "No safe structured profit functions are available for FOC generation.",
+            ],
+          },
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.targetTab, "model");
+  assert.equal(recommendation.action?.agentAction, "build_model");
+  assert.match(recommendation.reason, /模型|利润函数|FOC/);
+});
+
+test("recommendNextAgentStep still opens property analysis when solved equilibrium only has manual-review artifacts", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "platform commission",
+    refinedIdea: "platform commission and subsidy",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: createEquilibrium(),
+    researchSession: {
+      phase: "analysis",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+        pendingDecision: {
+          kind: "analyze_properties",
+          prompt: "equilibrium solved",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-manual-generated-foc",
+          runId: "agent-equilibrium",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "generated_foc_system",
+          title: "Generated FOC system",
+          status: "manual_review",
+          source: "sympy",
+          input: {
+            objectives: [
+              {
+                expression: "alpha_B*tau_A - tau_A^2",
+                variable: "tau_A",
+              },
+            ],
+          },
+          issues: ["SymPy FOC generation is unavailable."],
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.targetTab, "properties");
+  assert.equal(recommendation.action?.kind, "analyze_properties");
+});
+
 function createModel() {
   return {
     symbols: [

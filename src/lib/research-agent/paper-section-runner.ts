@@ -19,7 +19,8 @@ import {
 } from "./resume.ts";
 import {
   appendTraceEvent,
-  updateStepStatus,
+  updateStepStatusAndNotify,
+  type AgentCheckpointSink,
   type AgentRun,
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
@@ -35,6 +36,7 @@ export type PaperSectionRevisionAgentRequest = {
 export type PaperSectionRevisionAgentClient = {
   now?: number;
   id?: string;
+  onAgentCheckpoint?: AgentCheckpointSink;
 };
 
 export type PaperSectionRevisionAgentResult = ResearchGenerationResponse & {
@@ -81,6 +83,20 @@ export async function runPaperSectionRevisionAgent(
       now
     );
   }
+  const recordStepStatus = async (
+    stepId: string,
+    status: AgentRun["plan"][number]["status"],
+    metadata?: Record<string, unknown>
+  ) => {
+    agentRun = await updateStepStatusAndNotify(
+      agentRun,
+      stepId,
+      status,
+      now,
+      metadata,
+      client.onAgentCheckpoint
+    );
+  };
 
   if (!targetSection) {
     agentRun = appendTraceEvent(
@@ -93,7 +109,7 @@ export async function runPaperSectionRevisionAgent(
       },
       now
     );
-    agentRun = updateStepStatus(agentRun, "select-paper-section", "failed", now);
+    await recordStepStatus("select-paper-section", "failed");
     return {
       project: attachAgentRun(request.project, agentRun),
       usedFallback: true,
@@ -103,7 +119,7 @@ export async function runPaperSectionRevisionAgent(
   }
 
   if (!shouldSkipCompletedStep(agentRun, "select-paper-section")) {
-    agentRun = updateStepStatus(agentRun, "select-paper-section", "running", now);
+    await recordStepStatus("select-paper-section", "running");
     agentRun = appendTraceEvent(
       agentRun,
       {
@@ -118,15 +134,10 @@ export async function runPaperSectionRevisionAgent(
       },
       now
     );
-    agentRun = updateStepStatus(
-      agentRun,
-      "select-paper-section",
-      "completed",
-      now
-    );
+    await recordStepStatus("select-paper-section", "completed");
   }
 
-  agentRun = updateStepStatus(agentRun, "draft-paper-section", "running", now);
+  await recordStepStatus("draft-paper-section", "running");
   const revisedSection = revisePaperSection({
     project: request.project,
     section: targetSection,
@@ -147,9 +158,9 @@ export async function runPaperSectionRevisionAgent(
     },
     now
   );
-  agentRun = updateStepStatus(agentRun, "draft-paper-section", "completed", now);
+  await recordStepStatus("draft-paper-section", "completed");
 
-  agentRun = updateStepStatus(agentRun, "review-section-grounding", "running", now);
+  await recordStepStatus("review-section-grounding", "running");
   const review = reviewPaperSectionRevision(request.project, revisedSection);
   agentRun = appendTraceEvent(
     agentRun,
@@ -166,12 +177,7 @@ export async function runPaperSectionRevisionAgent(
     },
     now
   );
-  agentRun = updateStepStatus(
-    agentRun,
-    "review-section-grounding",
-    "completed",
-    now
-  );
+  await recordStepStatus("review-section-grounding", "completed");
 
   const patch = createPaperSectionPatch({
     section: revisedSection,

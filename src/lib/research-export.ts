@@ -39,6 +39,20 @@ export function buildResearchProjectMarkdown(project: ResearchProject): string {
     lines.push(propertiesSection);
   }
 
+  const paperSection = buildAppliedPaperSection(project.sections);
+  if (paperSection) {
+    pushBlankLine(lines);
+    lines.push(paperSection);
+  }
+
+  const mathArtifactsSection = buildMathArtifactsSection(
+    project.researchSession?.mathArtifacts
+  );
+  if (mathArtifactsSection) {
+    pushBlankLine(lines);
+    lines.push(mathArtifactsSection);
+  }
+
   const sympyReviewSection = buildSympyReviewScriptSection(project);
   if (sympyReviewSection) {
     pushBlankLine(lines);
@@ -262,6 +276,67 @@ function buildPropertySection(analyses: PropertyAnalysis[] | undefined) {
   });
 
   return lines.join("\n");
+}
+
+function buildAppliedPaperSection(sections: ResearchProject["sections"]) {
+  if (sections.length === 0) return null;
+
+  const lines: string[] = ["## 论文输出"];
+  sections.forEach((section) => {
+    if (!section.content.trim()) return;
+
+    lines.push(
+      "",
+      `### ${section.title}`,
+      "",
+      section.content.trim()
+    );
+  });
+
+  return lines.length > 1 ? lines.join("\n") : null;
+}
+
+function buildMathArtifactsSection(
+  artifacts: NonNullable<ResearchProject["researchSession"]>["mathArtifacts"]
+) {
+  if (!artifacts || artifacts.length === 0) return null;
+
+  const lines: string[] = ["## 数学产物记录"];
+  artifacts.slice(-12).forEach((artifact) => {
+    lines.push(
+      "",
+      `### ${artifact.title}`,
+      `- 类型：${artifact.kind}`,
+      `- 状态：${artifact.status}`,
+      `- 来源：${artifact.source}`,
+      `- AgentRun：${artifact.runId ?? "未记录"}`,
+      `- 步骤：${artifact.stepId}`,
+      `- Patch：${artifact.patchId ?? "未绑定"}`
+    );
+
+    if (artifact.input !== undefined) {
+      lines.push("", "#### 输入", "```json", stringifyArtifactValue(artifact.input), "```");
+    }
+
+    if (artifact.output !== undefined) {
+      lines.push("", "#### 输出", "```json", stringifyArtifactValue(artifact.output), "```");
+    }
+
+    if (artifact.issues?.length) {
+      lines.push("", "#### 问题");
+      artifact.issues.forEach((issue) => lines.push(`- ${issue}`));
+    }
+  });
+
+  return lines.join("\n");
+}
+
+function stringifyArtifactValue(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function buildSympyReviewScriptSection(project: ResearchProject) {

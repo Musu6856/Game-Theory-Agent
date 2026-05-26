@@ -19,6 +19,11 @@ import type {
   ResearchProjectType,
   ResearchSession,
   ModelSourceMetadata,
+  AgentTask,
+  AgentTaskCheckpoint,
+  AgentTaskInput,
+  AgentTaskResult,
+  AgentTaskStatus,
 } from "@/lib/types";
 
 export const projects = pgTable(
@@ -64,3 +69,39 @@ export const projects = pgTable(
 
 export type ProjectRow = typeof projects.$inferSelect;
 export type NewProjectRow = typeof projects.$inferInsert;
+
+export const agentTasks = pgTable(
+  "agent_tasks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    action: text("action").$type<AgentTask["action"]>().notNull(),
+    status: text("status").$type<AgentTaskStatus>().notNull().default("queued"),
+    input: jsonb("input").$type<AgentTaskInput | Record<string, unknown>>().notNull(),
+    checkpoints: jsonb("checkpoints")
+      .$type<AgentTaskCheckpoint[]>()
+      .notNull()
+      .default([]),
+    workerId: text("worker_id"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    result: jsonb("result").$type<AgentTaskResult | unknown>(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("agent_tasks_owner_project_idx").on(table.ownerId, table.projectId),
+    index("agent_tasks_owner_status_idx").on(table.ownerId, table.status),
+    index("agent_tasks_lease_until_idx").on(table.leaseUntil),
+  ]
+);
+
+export type AgentTaskRow = typeof agentTasks.$inferSelect;
+export type NewAgentTaskRow = typeof agentTasks.$inferInsert;
