@@ -199,6 +199,29 @@ export function confirmResearchModel(project: ResearchProject): ResearchProject 
   };
 }
 
+export function getCurrentResearchDirectionId(
+  project: ResearchProject
+): string | undefined {
+  const session = project.researchSession;
+  const currentDirectionId = session?.assetSummary.currentDirection?.id;
+  if (currentDirectionId) return currentDirectionId;
+
+  const directions = session?.directions ?? [];
+  const normalizedRefinedIdea = normalizeDirectionMatchText(project.refinedIdea);
+  const byTitle = directions.find(
+    (direction) =>
+      normalizeDirectionMatchText(direction.title) === normalizedRefinedIdea
+  );
+  if (byTitle) return byTitle.id;
+
+  const normalizedRawIdea = normalizeDirectionMatchText(project.rawIdea);
+  const byRawIdea = directions.find(
+    (direction) =>
+      normalizeDirectionMatchText(direction.title) === normalizedRawIdea
+  );
+  return byRawIdea?.id;
+}
+
 export function generateSymbolicEquilibrium(
   project: ResearchProject
 ): ResearchProject {
@@ -404,6 +427,10 @@ function normalizeProjectSymbols(project: ResearchProject): ResearchProject {
       symbols: normalizeSymbolRegistry(project.hotellingModel.symbols),
     },
   };
+}
+
+function normalizeDirectionMatchText(value: string | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, "").toLowerCase();
 }
 
 function createDirectionCards(): ResearchDirection[] {

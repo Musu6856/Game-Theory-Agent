@@ -676,6 +676,7 @@ test("applies several model symbol operations and marks downstream assets stale"
     ...project,
     researchSession: {
       ...project.researchSession,
+      phase: "model",
       assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
     },
   };
@@ -709,6 +710,7 @@ test("applies several model symbol operations and marks downstream assets stale"
   assert.equal(nextProject.researchSession?.assetFreshness?.model, "fresh");
   assert.equal(nextProject.researchSession?.assetFreshness?.equilibrium, "stale");
   assert.equal(nextProject.researchSession?.assetFreshness?.properties, "stale");
+  assert.equal(nextProject.researchSession?.phase, "equilibrium");
   assert.equal(
     nextProject.researchSession?.assetSummary.pendingDecision?.kind,
     "solve_equilibrium"
@@ -747,6 +749,7 @@ test("applies model text patches for confirmed repair proposals", () => {
     ...project,
     researchSession: {
       ...project.researchSession,
+      phase: "model",
       assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
     },
   };
@@ -769,6 +772,11 @@ test("applies model text patches for confirmed repair proposals", () => {
     )
   );
   assert.equal(nextProject.researchSession?.assetFreshness?.equilibrium, "stale");
+  assert.equal(nextProject.researchSession?.phase, "equilibrium");
+  assert.equal(
+    nextProject.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
 });
 
 test("applies multi-symbol model patches with several inserts and replacements", () => {

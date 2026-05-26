@@ -263,6 +263,7 @@ function applyModelAssetPatch(
     hotellingModel: nextModel,
     researchSession: {
       ...session,
+      phase: "equilibrium",
       assetSummary: {
         ...session.assetSummary,
         confirmedAssumptions: nextModel.assumptions,

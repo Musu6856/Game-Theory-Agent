@@ -8,6 +8,7 @@ import {
   createExplorationProject,
   generatePropertyAnalysis,
   generateSymbolicEquilibrium,
+  getCurrentResearchDirectionId,
   normalizeResearchProjectForWorkspace,
 } from "./research-session.ts";
 import { verifyEquilibriumMathConsistency } from "./research-agent/math-verifier.ts";
@@ -124,6 +125,29 @@ test("adopts a research direction into model co-creation phase", () => {
       (symbol) => symbol.codeName === "s_A" && symbol.meaning.includes("补贴")
     )
   );
+});
+
+test("infers adopted direction id when legacy sessions lost currentDirection", () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "研究短视频平台补贴",
+    now: 1710000000000,
+  });
+  const direction = project.researchSession?.directions[0];
+  const legacyFormalProject = {
+    ...project,
+    projectType: "formal",
+    refinedIdea: direction?.title ?? "",
+    researchSession: {
+      ...project.researchSession,
+      assetSummary: {
+        ...project.researchSession.assetSummary,
+        currentDirection: undefined,
+      },
+    },
+  };
+
+  assert.equal(getCurrentResearchDirectionId(legacyFormalProject), direction?.id);
 });
 
 test("adopts a non-recommended research direction instead of blocking it", () => {

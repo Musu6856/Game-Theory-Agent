@@ -391,6 +391,67 @@ test("planSafeContinuation blocks model repair instead of auto-running build_mod
   assert.match(plan.reason, /模型修复|手动/);
 });
 
+test("recommendNextAgentStep reruns solving after an applied model repair makes old math artifacts stale", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "研究平台功能差异化",
+    refinedIdea: "平台功能差异化与定价",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      ...createEquilibrium(),
+      status: "symbolic_failure",
+      closedForm: "No closed-form equilibrium yet.",
+    },
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetFreshness: {
+        model: "fresh",
+        equilibrium: "stale",
+        properties: "stale",
+      },
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "symbolic_failure",
+        nextActions: [],
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "模型修复已应用，请重新求解均衡。",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-old-missing-decision-variables",
+          runId: "agent-equilibrium-old",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium-old",
+          kind: "equilibrium_candidate",
+          title: "Old equilibrium candidate",
+          status: "manual_review",
+          source: "provider",
+          issues: [
+            "Closed-form equilibrium is missing model decision variable(s): a_A, a_B.",
+          ],
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.targetTab, "equilibrium");
+  assert.equal(recommendation.action?.kind, "solve_equilibrium");
+  assert.equal(recommendation.action?.agentAction, "solve_equilibrium");
+  assert.match(recommendation.title, /重新生成|重新尝试|开始/);
+});
+
 test("recommendNextAgentStep still opens property analysis when solved equilibrium only has manual-review artifacts", () => {
   const recommendation = recommendNextAgentStep({
     id: "project-1",

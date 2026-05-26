@@ -57,6 +57,7 @@ import {
 import {
   confirmResearchModel,
   createInitialResearchSession,
+  getCurrentResearchDirectionId,
   normalizeResearchProjectForWorkspace,
 } from "@/lib/research-session";
 import { normalizeSymbolRegistry } from "@/lib/symbol-governance";
@@ -346,8 +347,7 @@ export function ResearchWorkspace({
   async function handleBuildModelRepair() {
     if (!activeProject || isBusy) return;
 
-    const currentDirectionId =
-      activeProject.researchSession?.assetSummary.currentDirection?.id;
+    const currentDirectionId = getCurrentResearchDirectionId(activeProject);
     if (!currentDirectionId) {
       toast.info("请先采用一个研究方向", {
         description: "模型修复需要沿着已采用的方向生成待审核修改建议。",

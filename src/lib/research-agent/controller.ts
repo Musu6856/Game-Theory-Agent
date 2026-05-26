@@ -219,6 +219,21 @@ export function recommendNextAgentStep(
       ? planEquilibriumKernelNextStep(project)
       : null;
   const flow = getResearchFlowState(project, session);
+  if (flow.isEquilibriumStale) {
+    return {
+      status: "ready",
+      title: "重新生成符号均衡",
+      reason: "模型已经修改，旧均衡和旧数学产物不再对应当前模型，下一步应先重算均衡。",
+      targetTab: "equilibrium",
+      action: {
+        kind: "solve_equilibrium",
+        agentAction: "solve_equilibrium",
+        label: "重新生成符号均衡",
+        description: "基于当前模型重新生成均衡候选，并以修改建议形式等待审核。",
+      },
+    };
+  }
+
   if (
     equilibriumKernelDecision?.action === "solve_equilibrium" &&
     equilibriumKernelDecision.artifactIds?.length
@@ -350,21 +365,6 @@ export function recommendNextAgentStep(
         agentAction: "draft_paper",
         label: "整理论文草稿",
         description: "基于已应用的方向、模型、均衡和命题，生成论文章节建议。",
-      },
-    };
-  }
-
-  if (flow.isEquilibriumStale) {
-    return {
-      status: "ready",
-      title: "重新生成符号均衡",
-      reason: "模型已经修改，旧均衡不再对应当前模型，下一步应先重算均衡。",
-      targetTab: "equilibrium",
-      action: {
-        kind: "solve_equilibrium",
-        agentAction: "solve_equilibrium",
-        label: "重新生成符号均衡",
-        description: "基于当前模型重新生成均衡候选，并以修改建议形式等待审核。",
       },
     };
   }
