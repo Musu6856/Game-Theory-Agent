@@ -54,9 +54,8 @@ function EditableSymbolRegistryDraft({
   onSaveSymbols?: (symbols: SymbolDefinition[]) => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState(initialSymbols);
-  const [expandedSymbolId, setExpandedSymbolId] = useState<string | null>(
-    initialSymbols[0]?.id ?? null
-  );
+  const [expandedSymbolId, setExpandedSymbolId] = useState<string | null>(null);
+  const [isRegistryOpen, setIsRegistryOpen] = useState(false);
 
   const registryDisplay = useMemo(
     () => groupSymbolRegistryForDisplay(draft),
@@ -79,6 +78,7 @@ function EditableSymbolRegistryDraft({
 
     setDraft((current) => [...current, nextSymbol]);
     setExpandedSymbolId(nextSymbol.id);
+    setIsRegistryOpen(true);
   }
 
   function deleteSymbol(id: string) {
@@ -88,7 +88,8 @@ function EditableSymbolRegistryDraft({
 
   function resetDraft() {
     setDraft(initialSymbols);
-    setExpandedSymbolId(initialSymbols[0]?.id ?? null);
+    setExpandedSymbolId(null);
+    setIsRegistryOpen(false);
   }
 
   async function handleSave() {
@@ -125,57 +126,68 @@ function EditableSymbolRegistryDraft({
         <InfoTile label="提醒" value={`${registryDisplay.totals.issueCount} 条`} />
       </div>
 
-      {issuePreview.length > 0 ? (
-        <div className="space-y-2 rounded-md border border-amber-200 bg-[oklch(0.985_0.02_85)] px-3 py-3 text-xs leading-5 text-[oklch(0.42_0.06_67)]">
-          {issuePreview.map((issue) => (
-            <div key={`${issue.code}-${issue.message}`} className="flex gap-2">
-              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-              <span>{issue.message}</span>
+      <details
+        className="rounded-md border bg-muted/15 px-3 py-2.5"
+        open={isRegistryOpen}
+        onToggle={(event) => setIsRegistryOpen(event.currentTarget.open)}
+      >
+        <summary className="cursor-pointer list-none text-xs font-medium text-muted-foreground">
+          展开符号表、提醒和编辑项
+        </summary>
+        <div className="mt-3 space-y-3 border-t pt-3">
+          {issuePreview.length > 0 ? (
+            <div className="space-y-2 rounded-md border border-amber-200 bg-[oklch(0.985_0.02_85)] px-3 py-3 text-xs leading-5 text-[oklch(0.42_0.06_67)]">
+              {issuePreview.map((issue) => (
+                <div key={`${issue.code}-${issue.message}`} className="flex gap-2">
+                  <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>{issue.message}</span>
+                </div>
+              ))}
+              {registryDisplay.issues.length > issuePreview.length ? (
+                <p className="pl-5 text-[11px] text-muted-foreground">
+                  还有 {registryDisplay.issues.length - issuePreview.length} 条提醒未展开。
+                </p>
+              ) : null}
             </div>
-          ))}
-          {registryDisplay.issues.length > issuePreview.length ? (
-            <p className="pl-5 text-[11px] text-muted-foreground">
-              还有 {registryDisplay.issues.length - issuePreview.length} 条提醒未展开。
-            </p>
           ) : null}
+
+          <div className="space-y-3">
+            {registryDisplay.groups.map((group) => (
+              <SymbolRoleGroup
+                key={group.role}
+                group={group}
+                disabled={disabled}
+                expandedSymbolId={expandedSymbolId}
+                onAdd={() => addSymbol(group.role)}
+                onDelete={deleteSymbol}
+                onExpandedChange={setExpandedSymbolId}
+                onUpdate={updateSymbol}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 border-t pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              onClick={resetDraft}
+              disabled={!hasChanges || disabled}
+            >
+              <RotateCcw className="size-3.5" />
+              恢复
+            </Button>
+            <Button
+              type="button"
+              className="gap-1.5"
+              onClick={() => void handleSave()}
+              disabled={!canSave}
+            >
+              保存符号表
+            </Button>
+          </div>
         </div>
-      ) : null}
-
-      <div className="space-y-3">
-        {registryDisplay.groups.map((group) => (
-          <SymbolRoleGroup
-            key={group.role}
-            group={group}
-            disabled={disabled}
-            expandedSymbolId={expandedSymbolId}
-            onAdd={() => addSymbol(group.role)}
-            onDelete={deleteSymbol}
-            onExpandedChange={setExpandedSymbolId}
-            onUpdate={updateSymbol}
-          />
-        ))}
-      </div>
-
-      <div className="flex items-center justify-end gap-2 border-t pt-3">
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-1.5"
-          onClick={resetDraft}
-          disabled={!hasChanges || disabled}
-        >
-          <RotateCcw className="size-3.5" />
-          恢复
-        </Button>
-        <Button
-          type="button"
-          className="gap-1.5"
-          onClick={() => void handleSave()}
-          disabled={!canSave}
-        >
-          保存符号表
-        </Button>
-      </div>
+      </details>
     </section>
   );
 }

@@ -343,6 +343,46 @@ export function ResearchWorkspace({
     }
   }
 
+  async function handleBuildModelRepair() {
+    if (!activeProject || isBusy) return;
+
+    const currentDirectionId =
+      activeProject.researchSession?.assetSummary.currentDirection?.id;
+    if (!currentDirectionId) {
+      toast.info("请先采用一个研究方向", {
+        description: "模型修复需要沿着已采用的方向生成待审核修改建议。",
+      });
+      return;
+    }
+
+    setIsConfirmingModel(true);
+    try {
+      const result = await generateResearchProjectApi({
+        action: "build_model",
+        rawIdea: activeProject.rawIdea,
+        selectedDirectionId: currentDirectionId,
+        userMessage:
+          "请根据最近一次均衡求解内核保存的数学产物修复模型求解输入：补齐决策变量、结构化利润函数和 FOC 所需符号；只生成待审核模型 patch，不要直接覆盖正式资产。",
+        project: activeProject,
+        runtimeModelSource: readRuntimeModelSourceSettings(),
+      });
+      const nextProject = getPersistableResearchProject(result);
+      if (!nextProject) {
+        toast.error("模型修复失败，右侧资产未更新。");
+        return;
+      }
+      await persistGeneratedProject(nextProject);
+      toast.success("模型修复建议已生成", {
+        description: "请在右侧模型页审阅并应用，再重新进行符号求解。",
+      });
+    } catch (error) {
+      console.error("Failed to generate model repair", error);
+      toast.error("模型修复建议生成失败");
+    } finally {
+      setIsConfirmingModel(false);
+    }
+  }
+
   async function confirmModelForSafeContinuation(
     currentProject: ResearchProject
   ) {
@@ -994,6 +1034,7 @@ export function ResearchWorkspace({
             agentTasks={agentTasks}
             onAdopt={handleAdopt}
             onConfirmModel={handleConfirmModel}
+            onBuildModelRepair={handleBuildModelRepair}
             onSafeContinue={handleSafeContinue}
             onSolveEquilibrium={handleSolveEquilibrium}
             onAnalyzeProperties={handleAnalyzeProperties}

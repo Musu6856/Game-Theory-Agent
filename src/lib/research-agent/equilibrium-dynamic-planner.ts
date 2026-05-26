@@ -97,6 +97,18 @@ export function planEquilibriumKernelNextStep(
       artifact.status === "unsupported" ||
       artifact.status === "condition_insufficient"
   );
+  const manualModelInputGaps = manualArtifacts.filter(isModelInputGapArtifact);
+  if (manualModelInputGaps.length > 0) {
+    return {
+      status: "ready",
+      action: "repair_model",
+      title: "补强模型求解输入",
+      reason:
+        "求解内核发现候选均衡引用了模型里没有闭式处理的决策变量或符号，应先生成模型修复建议，补齐变量、利润函数或 FOC 输入后再重新求解。",
+      artifactIds: manualModelInputGaps.map((artifact) => artifact.id),
+    };
+  }
+
   if (manualArtifacts.length > 0) {
     return {
       status: "blocked",
@@ -214,4 +226,17 @@ function isModelRepairArtifact(artifact: ResearchMathArtifact) {
   ].join("\n");
 
   return /profit|objective|variable|FOC|利润|变量|求导|结构化/i.test(text);
+}
+
+function isModelInputGapArtifact(artifact: ResearchMathArtifact) {
+  const text = [
+    artifact.title,
+    ...(artifact.issues ?? []),
+    JSON.stringify(artifact.input ?? {}),
+    JSON.stringify(artifact.output ?? {}),
+  ].join("\n");
+
+  return /missing model decision variable|model decision variable|undefined symbol|undefined variable|missing.*variable|缺少.*变量|未定义.*符号|未定义.*变量|决策变量/i.test(
+    text
+  );
 }

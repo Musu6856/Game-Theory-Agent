@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { recommendNextAgentStep } from "./controller.ts";
+import { planSafeContinuation, recommendNextAgentStep } from "./controller.ts";
 
 test("recommendNextAgentStep routes high-impact version review to the actionable asset", () => {
   const recommendation = recommendNextAgentStep({
@@ -280,6 +280,115 @@ test("recommendNextAgentStep uses compiled system gaps to repair the model first
   assert.equal(recommendation.targetTab, "model");
   assert.equal(recommendation.action?.agentAction, "build_model");
   assert.match(recommendation.reason, /模型|利润函数|FOC/);
+});
+
+test("recommendNextAgentStep uses missing decision variables to repair the model first", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "研究平台功能差异化",
+    refinedIdea: "平台功能差异化与定价",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      ...createEquilibrium(),
+      status: "symbolic_failure",
+      closedForm: "No closed-form equilibrium yet.",
+    },
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "symbolic_failure",
+        nextActions: [],
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "请重新求解均衡。",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-missing-decision-variables",
+          runId: "agent-equilibrium",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "equilibrium_candidate",
+          title: "Equilibrium candidate",
+          status: "manual_review",
+          source: "provider",
+          issues: [
+            "Closed-form equilibrium is missing model decision variable(s): a_A, a_B.",
+          ],
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.targetTab, "model");
+  assert.equal(recommendation.action?.agentAction, "build_model");
+  assert.match(recommendation.reason, /模型|变量|求解输入/);
+});
+
+test("planSafeContinuation blocks model repair instead of auto-running build_model", () => {
+  const plan = planSafeContinuation({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "研究平台功能差异化",
+    refinedIdea: "平台功能差异化与定价",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      ...createEquilibrium(),
+      status: "symbolic_failure",
+      closedForm: "No closed-form equilibrium yet.",
+    },
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "symbolic_failure",
+        nextActions: [],
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "请重新求解均衡。",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-missing-decision-variables",
+          runId: "agent-equilibrium",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "equilibrium_candidate",
+          title: "Equilibrium candidate",
+          status: "manual_review",
+          source: "provider",
+          issues: [
+            "Closed-form equilibrium is missing model decision variable(s): a_A, a_B.",
+          ],
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.stopReason, "manual_choice_required");
+  assert.match(plan.reason, /模型修复|手动/);
 });
 
 test("recommendNextAgentStep still opens property analysis when solved equilibrium only has manual-review artifacts", () => {

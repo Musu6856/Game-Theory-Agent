@@ -42,7 +42,10 @@ export type NextAgentBlocker = {
 };
 
 export type SafeContinuationStep = {
-  kind: Exclude<NextAgentActionKind, "choose_direction">;
+  kind: Exclude<
+    NextAgentActionKind,
+    "choose_direction" | "answer_model_question"
+  >;
   label: string;
   description: string;
   agentAction?: AgentExecutableAction;
@@ -115,15 +118,28 @@ export function planSafeContinuation(
   if (!isSafeContinuationActionKind(action.kind)) {
     return {
       status: "blocked",
-      title: "需要先选择方向",
-      reason: "研究方向会决定后续模型结构，连续推进不会替用户自动选择方向。",
-      targetTab: "directions",
+      title:
+        action.kind === "answer_model_question"
+          ? "需要先手动触发模型修复"
+          : "需要先选择方向",
+      reason:
+        action.kind === "answer_model_question"
+          ? "这一步会生成模型修复建议，可能改变变量、利润函数或 FOC 输入；请先用主按钮触发并在右侧审核，而不是让连续推进自动跳过。"
+          : "研究方向会决定后续模型结构，连续推进不会替用户自动选择方向。",
+      targetTab:
+        action.kind === "answer_model_question" ? "model" : "directions",
       steps: [],
       stopReason: "manual_choice_required",
       blocker: {
         kind: "manual_choice",
-        label: "等待选择方向",
-        description: "请先在候选方向中采用一个方向，再继续自动推进。",
+        label:
+          action.kind === "answer_model_question"
+            ? "等待模型修复"
+            : "等待选择方向",
+        description:
+          action.kind === "answer_model_question"
+            ? "请先点击“生成模型修复建议”，审阅并应用模型 patch 后再重新求解。"
+            : "请先在候选方向中采用一个方向，再继续自动推进。",
       },
     };
   }
@@ -476,7 +492,7 @@ function hasExecutablePendingDecision(
 function isSafeContinuationActionKind(
   kind: NextAgentActionKind
 ): kind is SafeContinuationStep["kind"] {
-  return kind !== "choose_direction";
+  return kind !== "choose_direction" && kind !== "answer_model_question";
 }
 
 function getSafeContinuationTitle(steps: SafeContinuationStep[]) {

@@ -226,6 +226,43 @@ test("equilibrium dynamic planner keeps generated FOC manual review when model o
   assert.deepEqual(decision.artifactIds, ["artifact-generated-foc-manual"]);
 });
 
+test("equilibrium dynamic planner repairs the model when manual review shows missing decision variables", () => {
+  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const project = {
+    ...solved,
+    researchSession: {
+      ...solved.researchSession,
+      mathArtifacts: [
+        {
+          id: "artifact-missing-decision-variables",
+          runId: "agent-equilibrium",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "equilibrium_candidate",
+          title: "Equilibrium candidate",
+          status: "manual_review",
+          source: "provider",
+          issues: [
+            "Closed-form equilibrium is missing model decision variable(s): a_A, a_B.",
+          ],
+          output: {
+            status: "symbolic_failure",
+            closedForm: "No closed-form equilibrium yet.",
+          },
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  };
+
+  const decision = planEquilibriumKernelNextStep(project);
+
+  assert.equal(decision.status, "ready");
+  assert.equal(decision.action, "repair_model");
+  assert.deepEqual(decision.artifactIds, ["artifact-missing-decision-variables"]);
+  assert.match(decision.reason, /模型|变量|求解输入/);
+});
+
 test("equilibrium dynamic planner opens property analysis after solved verified equilibrium", () => {
   const solved = generateSymbolicEquilibrium(createConfirmedProject());
   const project = {

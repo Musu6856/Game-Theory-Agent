@@ -107,6 +107,7 @@ type ResearchAssetsPanelProps = {
   agentTasks?: AgentTask[];
   onAdopt?: (directionId: string) => void;
   onConfirmModel?: () => void;
+  onBuildModelRepair?: () => void;
   onSafeContinue?: () => void;
   onSolveEquilibrium?: () => void;
   onAnalyzeProperties?: () => void;
@@ -158,6 +159,7 @@ function ResearchAssetsPanelContent({
   agentTasks,
   onAdopt,
   onConfirmModel,
+  onBuildModelRepair,
   onSafeContinue,
   onSolveEquilibrium,
   onAnalyzeProperties,
@@ -196,7 +198,9 @@ function ResearchAssetsPanelContent({
   const isSymbolicFailure = equilibrium?.status === "symbolic_failure";
   const hasThinAnalysis = analyses.length > 0 && analyses.length < 3;
   const canSolveNow =
-    Boolean(model && onSolveEquilibrium) && flow.canSolveEquilibrium;
+    Boolean(model && onSolveEquilibrium) &&
+    flow.canSolveEquilibrium &&
+    nextRecommendation.action?.agentAction === "solve_equilibrium";
   const canAnalyzeNow =
     Boolean(equilibrium && onAnalyzeProperties) && flow.canAnalyzeProperties;
   const canDraftPaper = Boolean(onDraftPaper) && flow.canDraftPaper;
@@ -222,6 +226,9 @@ function ResearchAssetsPanelContent({
         return;
       case "confirm_model":
         onConfirmModel?.();
+        return;
+      case "answer_model_question":
+        onBuildModelRepair?.();
         return;
       case "solve_equilibrium":
         onSolveEquilibrium?.();
@@ -334,13 +341,6 @@ function ResearchAssetsPanelContent({
           onRunRecovery={onRunRecovery}
         />
 
-        {visibleAgentTasks.length > 0 ? (
-          <AgentTaskAuditPanel
-            tasks={visibleAgentTasks}
-            activeTaskId={visibleAgentTask?.id}
-          />
-        ) : null}
-
         <PendingAssetPatches
           patches={session.assetPatches ?? []}
           onApply={handleApplyAssetPatch}
@@ -424,6 +424,13 @@ function ResearchAssetsPanelContent({
             isPropertyAnalysisStale={flow.isPropertyAnalysisStale}
             mathSummary={mathSummary}
             mathArtifacts={equilibriumMathArtifacts}
+          />
+        ) : null}
+
+        {visibleAgentTasks.length > 0 ? (
+          <AgentTaskAuditPanel
+            tasks={visibleAgentTasks}
+            activeTaskId={visibleAgentTask?.id}
           />
         ) : null}
       </div>
@@ -807,6 +814,9 @@ function NextStepSuggestion({
     recommendation.status === "ready" &&
     recommendation.action &&
     recommendation.action.kind !== "choose_direction";
+  const shouldShowBlockerDescription =
+    recommendation.blocker &&
+    recommendation.blocker.description.trim() !== recommendation.reason.trim();
   const canContinueSafely =
     safeContinuationPlan.status === "ready" &&
     safeContinuationPlan.steps.length > 0 &&
@@ -846,9 +856,9 @@ function NextStepSuggestion({
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {recommendation.reason}
           </p>
-          {recommendation.blocker ? (
+          {shouldShowBlockerDescription ? (
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {recommendation.blocker.description}
+              {recommendation.blocker?.description}
             </p>
           ) : null}
         </div>
@@ -908,21 +918,54 @@ function AgentTaskAuditPanel({
   const recentTasks = activeTask
     ? tasks.filter((task) => task.id !== activeTask.id)
     : tasks;
-  const shouldOpenHistory = recentTasks.some(
+  const shouldOpenPanel = tasks.some(
     (task) => task.status === "running" || task.status === "failed"
   );
+  const totals = summarizeAgentTasks(tasks);
 
   return (
-    <AssetSection
-      title="Agent 任务审计"
-      description="这里记录后台任务、检查点、数学产物和最终补丁，方便确认求解到底跑到了哪一步。"
+    <details
+      className="rounded-md border bg-muted/15 px-3 py-2.5"
+      open={shouldOpenPanel}
     >
-      <div className="space-y-3">
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold">Agent 任务审计</p>
+              {activeTask ? (
+                <StatusBadge
+                  label={formatAgentTaskStatus(activeTask.status)}
+                  tone={
+                    activeTask.status === "completed"
+                      ? "success"
+                      : activeTask.status === "failed"
+                        ? "warning"
+                        : "neutral"
+                  }
+                />
+              ) : null}
+            </div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {activeTask
+                ? `${formatAgentTaskAction(activeTask.action)} · 最近检查点 ${activeTask.checkpoints.length} 个`
+                : `最近任务 ${tasks.length} 个`}
+            </p>
+          </div>
+          <div className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
+            <p>{totals.patchCount} 个修改建议</p>
+            <p>{totals.mathArtifactCount} 个数学产物</p>
+          </div>
+        </div>
+      </summary>
+      <div className="mt-3 space-y-3 border-t pt-3">
         {activeTask ? <AgentTaskStatusCard task={activeTask} /> : null}
         {recentTasks.length > 0 ? (
           <details
             className="rounded-md border bg-muted/20 px-3 py-2"
-            open={shouldOpenHistory}
+            open={recentTasks.some(
+              (task) => task.status === "running" || task.status === "failed"
+            )}
           >
             <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
               最近任务历史（{recentTasks.length}）
@@ -935,7 +978,7 @@ function AgentTaskAuditPanel({
           </details>
         ) : null}
       </div>
-    </AssetSection>
+    </details>
   );
 }
 
@@ -1051,6 +1094,18 @@ function getVisibleAgentTasks({
   return [...merged.values()]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 5);
+}
+
+function summarizeAgentTasks(tasks: AgentTask[]) {
+  return tasks.reduce(
+    (summary, task) => {
+      const result = getAgentTaskResult(task.result);
+      summary.patchCount += result?.patchIds?.length ?? 0;
+      summary.mathArtifactCount += result?.mathArtifactIds?.length ?? 0;
+      return summary;
+    },
+    { patchCount: 0, mathArtifactCount: 0 }
+  );
 }
 
 function AgentTaskCheckpointItem({
@@ -1403,6 +1458,7 @@ function getNextRecommendationBusyState({
 }) {
   switch (recommendation.action?.kind) {
     case "confirm_model":
+    case "answer_model_question":
       return Boolean(isConfirmingModel);
     case "solve_equilibrium":
       return Boolean(isSolvingEquilibrium);
@@ -1494,10 +1550,6 @@ function EquilibriumTab({
         onAction={onSolveEquilibrium}
       />
 
-      <MathVerificationSummaryPanel summary={mathSummary} compact />
-
-      <MathArtifactsPanel artifacts={mathArtifacts} />
-
       {displayedEquilibrium ? (
         <>
           {isPendingCandidate ? (
@@ -1562,6 +1614,10 @@ function EquilibriumTab({
       ) : (
         <EmptyLine text="确认模型后，可以在这里生成并检查符号均衡。" />
       )}
+
+      <MathVerificationSummaryPanel summary={mathSummary} compact />
+
+      <MathArtifactsPanel artifacts={mathArtifacts} />
     </div>
   );
 }
@@ -1838,13 +1894,29 @@ function MathArtifactsPanel({
 }) {
   const visibleArtifacts = artifacts.slice(0, 8);
   if (visibleArtifacts.length === 0) return null;
+  const counts = summarizeMathArtifacts(visibleArtifacts);
 
   return (
-    <AssetSection
-      title="数学产物"
-      description="保存均衡求解过程中的候选、FOC、残差回代和独立求解对照。"
+    <details
+      className="rounded-md border bg-muted/15 px-3 py-2.5"
+      open={counts.failed > 0}
     >
-      <div className="space-y-2">
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">技术校验记录</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              已保存 {visibleArtifacts.length} 个求解过程产物，展开后可看
+              FOC、残差和 SymPy 对照。
+            </p>
+          </div>
+          <div className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
+            <p>{counts.passed} 通过</p>
+            <p>{counts.needsAttention} 需处理</p>
+          </div>
+        </div>
+      </summary>
+      <div className="mt-3 space-y-2 border-t pt-3">
         {visibleArtifacts.map((artifact) => (
           <article
             key={artifact.id}
@@ -1867,15 +1939,67 @@ function MathArtifactsPanel({
               {getMathArtifactKindLabel(artifact.kind)} · {artifact.stepId}
               {artifact.patchId ? ` · ${artifact.patchId}` : ""}
             </p>
-            {artifact.output !== undefined ? (
-              <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-muted/45 px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
-                {formatArtifactPreview(artifact.output)}
-              </pre>
+            {artifact.issues && artifact.issues.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                {artifact.issues.slice(0, 2).map((issue) => (
+                  <li key={issue} className="break-words">
+                    {issue}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {artifact.input !== undefined || artifact.output !== undefined ? (
+              <details className="mt-2 rounded-sm bg-muted/35 px-2 py-1.5">
+                <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+                  展开技术详情
+                </summary>
+                {artifact.input !== undefined ? (
+                  <>
+                    <p className="mt-2 text-[10px] font-medium text-muted-foreground">
+                      输入
+                    </p>
+                    <pre className="mt-1 max-h-32 overflow-auto rounded-sm bg-background/70 px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+                      {formatArtifactPreview(artifact.input)}
+                    </pre>
+                  </>
+                ) : null}
+                {artifact.output !== undefined ? (
+                  <>
+                    <p className="mt-2 text-[10px] font-medium text-muted-foreground">
+                      输出
+                    </p>
+                    <pre className="mt-1 max-h-32 overflow-auto rounded-sm bg-background/70 px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+                      {formatArtifactPreview(artifact.output)}
+                    </pre>
+                  </>
+                ) : null}
+              </details>
             ) : null}
           </article>
         ))}
       </div>
-    </AssetSection>
+    </details>
+  );
+}
+
+function summarizeMathArtifacts(
+  artifacts: NonNullable<ResearchSession["mathArtifacts"]>
+) {
+  return artifacts.reduce(
+    (summary, artifact) => {
+      if (artifact.status === "passed") summary.passed += 1;
+      if (artifact.status === "failed") summary.failed += 1;
+      if (
+        artifact.status === "failed" ||
+        artifact.status === "manual_review" ||
+        artifact.status === "unsupported" ||
+        artifact.status === "condition_insufficient"
+      ) {
+        summary.needsAttention += 1;
+      }
+      return summary;
+    },
+    { passed: 0, failed: 0, needsAttention: 0 }
   );
 }
 
@@ -1927,6 +2051,29 @@ function MathVerificationSummaryPanel({
   const visibleChecks = selectMathVerificationPanelChecks(summary, {
     compact,
   });
+  const hasReviewDetails = visibleIssues.length > 0 || visibleChecks.length > 0;
+  const reviewDetails = (
+    <>
+      {visibleIssues.length > 0 ? (
+        <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+          {visibleIssues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      ) : null}
+      {visibleChecks.length > 0 ? (
+        <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+          {visibleChecks.map((check) => (
+            <li
+              key={`${check.kind}-${check.analysisId ?? "project"}-${check.message}`}
+            >
+              {check.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
 
   return (
     <AssetSection title="数学验证">
@@ -1955,24 +2102,15 @@ function MathVerificationSummaryPanel({
         <p className="mt-3 font-medium text-foreground">
           建议下一步：{summary.nextAction}
         </p>
-        {visibleIssues.length > 0 ? (
-          <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
-            {visibleIssues.map((issue) => (
-              <li key={issue}>{issue}</li>
-            ))}
-          </ul>
+        {hasReviewDetails && compact ? (
+          <details className="mt-2 rounded-sm bg-muted/35 px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+              展开复核说明
+            </summary>
+            {reviewDetails}
+          </details>
         ) : null}
-        {visibleChecks.length > 0 ? (
-          <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
-            {visibleChecks.map((check) => (
-              <li
-                key={`${check.kind}-${check.analysisId ?? "project"}-${check.message}`}
-              >
-                {check.message}
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        {hasReviewDetails && !compact ? reviewDetails : null}
       </div>
     </AssetSection>
   );
