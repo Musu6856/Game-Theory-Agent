@@ -1,11 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyResearchInput } from "./research-intent.ts";
+import {
+  classifyResearchInput,
+  isCasualConversationStarter,
+} from "./research-intent.ts";
 
 test("classifies casual input as chat", () => {
   assert.equal(classifyResearchInput("你好"), "chat");
+  assert.equal(classifyResearchInput("你好啊"), "chat");
   assert.equal(classifyResearchInput("这个结果是什么意思？"), "chat");
+});
+
+test("detects casual new-conversation starters", () => {
+  assert.equal(isCasualConversationStarter("你好啊"), true);
+  assert.equal(isCasualConversationStarter("你是谁"), true);
+  assert.equal(isCasualConversationStarter("我想研究平台补贴对卖家多归属的影响"), false);
+  assert.equal(isCasualConversationStarter("外卖平台佣金和补贴如何影响买卖双方参与"), false);
 });
 
 test("keeps explanation and correction requests in chat unless they ask for regeneration", () => {

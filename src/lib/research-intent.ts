@@ -31,6 +31,12 @@ export function classifyResearchInput(input: string): ResearchInputIntent {
   return "chat";
 }
 
+export function isCasualConversationStarter(input: string) {
+  const text = normalizeResearchInput(input);
+  if (!text) return false;
+  return isBriefCasualStarter(text);
+}
+
 function normalizeResearchInput(input: string) {
   return input.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -81,11 +87,16 @@ function isExplicitModelRefinement(text: string) {
 
 function isChatOnlyMessage(text: string) {
   return (
-    /^(你好|您好|hi|hello|hey|在吗|在么|嗨|早上好|下午好|晚上好)[!！。,.?\s]*$/.test(
-      text
-    ) ||
+    isBriefCasualStarter(text) ||
     /(解释一下|帮我解释|说明一下|讲清楚|怎么理解|如何理解|为什么|哪里不对|有问题|写错了|修正一下|纠正一下|帮我看|看一下|核对一下|确认一下|梳理一下)/.test(
       text
     )
+  );
+}
+
+function isBriefCasualStarter(text: string) {
+  const compact = text.replace(/[!！。,.?？、\s]/g, "");
+  return /^(你好|您好|哈喽|嗨|hi|hello|hey|在吗|在么|早上好|下午好|晚上好|你是谁|你能做什么|可以聊聊吗|能聊吗|有人吗)(啊|呀|呢|嘛|哈)?$/.test(
+    compact
   );
 }

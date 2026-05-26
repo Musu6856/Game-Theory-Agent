@@ -50,7 +50,10 @@ import {
   createComposingSidebarProject,
   getResearchWorkspaceViewState,
 } from "@/lib/research-workspace-state";
-import { classifyResearchInput } from "@/lib/research-intent";
+import {
+  classifyResearchInput,
+  isCasualConversationStarter,
+} from "@/lib/research-intent";
 import {
   confirmResearchModel,
   createInitialResearchSession,
@@ -98,6 +101,9 @@ export function ResearchWorkspace({
     useState<ResearchSessionMessage | null>(null);
   const [pendingAssistantMessage, setPendingAssistantMessage] =
     useState<ResearchChatViewMessage | null>(null);
+  const [localConversationMessages, setLocalConversationMessages] = useState<
+    ResearchSessionMessage[]
+  >([]);
   const inFlightAgentTaskIdsRef = useRef<Set<string>>(new Set());
   const runAndRefreshAgentTaskRef = useRef<
     ((task: AgentTask, projectId: string) => Promise<ResearchProject>) | null
@@ -637,6 +643,29 @@ export function ResearchWorkspace({
     const idea = content.trim();
     if (!idea) return;
 
+    if (
+      (isComposingNewConversation || !activeProject) &&
+      isCasualConversationStarter(idea)
+    ) {
+      setLocalConversationMessages((messages) => [
+        ...messages,
+        {
+          id: createMessageId("msg-local-user"),
+          role: "user",
+          content: idea,
+          createdAt: createTimestamp(),
+        },
+        {
+          id: createMessageId("msg-local-assistant"),
+          role: "assistant",
+          content:
+            "我在。这里可以轻量聊天，但新建研究需要你给我一个具体研究想法；打开已有项目后，也可以直接问模型、均衡、性质分析或论文输出。",
+          createdAt: createTimestamp(),
+        },
+      ]);
+      return;
+    }
+
     const pendingAssistantBubble = createPendingAssistantMessage();
     setOptimisticMessage({
       id: createMessageId("msg-optimistic"),
@@ -667,6 +696,7 @@ export function ResearchWorkspace({
         const saved = await createProject(generatedProject);
         dispatch({ type: "NEW_PROJECT", payload: saved });
         setLocalComposingProjectId(null);
+        setLocalConversationMessages([]);
         router.push(`/research/${saved.id}`);
         toast.success("已开启新的探索对话");
       } catch (error) {
@@ -901,7 +931,7 @@ export function ResearchWorkspace({
   const centerMessages = (() => {
     const baseMessages =
       !displayedProject || isComposingNewConversation || !session
-        ? []
+        ? localConversationMessages
         : session.messages;
 
     return createResearchChatViewMessages(
@@ -926,9 +956,13 @@ export function ResearchWorkspace({
             project={sidebarProject}
             isComposingNewConversation={isComposingNewConversation}
             onStartNewConversation={() => {
+              setLocalConversationMessages([]);
               if (activeProject) setLocalComposingProjectId(activeProject.id);
             }}
-            onOpenProject={() => setLocalComposingProjectId(null)}
+            onOpenProject={() => {
+              setLocalConversationMessages([]);
+              setLocalComposingProjectId(null);
+            }}
           />
       }
       center={
