@@ -49,8 +49,12 @@ export function planEquilibriumKernelNextStep(
     };
   }
 
+  const lastAppliedModelPatchAt = getLastAppliedModelPatchAt(project);
   const latestArtifacts = getLatestEquilibriumArtifacts(
-    project.researchSession?.mathArtifacts ?? []
+    (project.researchSession?.mathArtifacts ?? []).filter(
+      (artifact) =>
+        !lastAppliedModelPatchAt || artifact.createdAt > lastAppliedModelPatchAt
+    )
   );
   const modelGapArtifacts = latestArtifacts.filter(isModelRepairArtifact);
   if (modelGapArtifacts.length > 0) {
@@ -135,6 +139,15 @@ export function planEquilibriumKernelNextStep(
     title: "开始符号求解",
     reason: "模型资产已经存在，下一步应构造候选均衡、FOC 和复核产物。",
   };
+}
+
+function getLastAppliedModelPatchAt(project: ResearchProject) {
+  return project.researchSession?.assetVersionHistory
+    ?.filter(
+      (event) =>
+        event.assetKind === "model" && event.action === "applied_patch"
+    )
+    .at(-1)?.createdAt;
 }
 
 function getLatestEquilibriumArtifacts(artifacts: ResearchMathArtifact[]) {

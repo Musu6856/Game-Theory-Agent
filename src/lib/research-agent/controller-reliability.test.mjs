@@ -452,6 +452,76 @@ test("recommendNextAgentStep reruns solving after an applied model repair makes 
   assert.match(recommendation.title, /重新生成|重新尝试|开始/);
 });
 
+test("recommendNextAgentStep ignores pre-repair model-gap artifacts after model patch approval", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "platform quality differentiation",
+    refinedIdea: "platform quality differentiation and subsidy competition",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      ...createEquilibrium(),
+      status: "symbolic_failure",
+      closedForm: "No closed-form equilibrium yet.",
+    },
+    researchSession: {
+      phase: "equilibrium",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "needs_revision",
+        nextActions: [],
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "model repair was applied; solve equilibrium again",
+        },
+      },
+      assetVersionHistory: [
+        {
+          id: "asset-version-patch-model-repair-applied",
+          assetKind: "model",
+          action: "applied_patch",
+          patchId: "patch-model-repair",
+          summary: "complete model solver inputs",
+          changedPaths: ["hotellingModel.modelSetupDraft"],
+          changes: [],
+          changeCount: 1,
+          createdAt: 1710000000100,
+          approvedBy: "user",
+        },
+      ],
+      mathArtifacts: [
+        {
+          id: "artifact-old-missing-decision-variables",
+          runId: "agent-equilibrium-old",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium-old",
+          kind: "equilibrium_candidate",
+          title: "Old equilibrium candidate",
+          status: "manual_review",
+          source: "provider",
+          issues: [
+            "Closed-form equilibrium is missing model decision variable(s): a_A, a_B.",
+          ],
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.targetTab, "equilibrium");
+  assert.equal(recommendation.action?.kind, "solve_equilibrium");
+  assert.equal(recommendation.action?.agentAction, "solve_equilibrium");
+  assert.notEqual(recommendation.action?.kind, "answer_model_question");
+});
+
 test("recommendNextAgentStep still opens property analysis when solved equilibrium only has manual-review artifacts", () => {
   const recommendation = recommendNextAgentStep({
     id: "project-1",
