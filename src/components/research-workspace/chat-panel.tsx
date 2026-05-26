@@ -4,6 +4,7 @@ import { Loader2, SendHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { shouldSubmitChatDraftFromKey } from "@/lib/chat-submit-key";
 import type { ResearchChatViewMessage } from "@/lib/research-chat-view";
 
 type ChatPanelProps = {
@@ -42,6 +43,14 @@ export function ChatPanel({
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitDraft();
+  }
+
+  async function handleDraftKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (!shouldSubmitChatDraftFromKey(event)) return;
     event.preventDefault();
     await submitDraft();
   }
@@ -101,6 +110,7 @@ export function ChatPanel({
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleDraftKeyDown}
             rows={2}
             className="min-h-10 flex-1 resize-none overflow-y-auto rounded-md border bg-background px-3 py-2 text-sm leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
             placeholder={placeholder}
