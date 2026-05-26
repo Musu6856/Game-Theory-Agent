@@ -15,6 +15,9 @@ test("classifies casual input as chat", () => {
 test("detects casual new-conversation starters", () => {
   assert.equal(isCasualConversationStarter("你好啊"), true);
   assert.equal(isCasualConversationStarter("你是谁"), true);
+  assert.equal(isCasualConversationStarter("你有哪些功能。"), true);
+  assert.equal(isCasualConversationStarter("功能有哪些？"), true);
+  assert.equal(isCasualConversationStarter("介绍一下怎么用"), true);
   assert.equal(isCasualConversationStarter("我想研究平台补贴对卖家多归属的影响"), false);
   assert.equal(isCasualConversationStarter("外卖平台佣金和补贴如何影响买卖双方参与"), false);
 });

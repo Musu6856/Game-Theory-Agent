@@ -96,7 +96,12 @@ function isChatOnlyMessage(text: string) {
 
 function isBriefCasualStarter(text: string) {
   const compact = text.replace(/[!！。,.?？、\s]/g, "");
-  return /^(你好|您好|哈喽|嗨|hi|hello|hey|在吗|在么|早上好|下午好|晚上好|你是谁|你能做什么|可以聊聊吗|能聊吗|有人吗)(啊|呀|呢|嘛|哈)?$/.test(
-    compact
+  return (
+    /^(你好|您好|哈喽|嗨|hi|hello|hey|在吗|在么|早上好|下午好|晚上好|你是谁|你能做什么|你可以做什么|你能帮我做什么|可以聊聊吗|能聊吗|有人吗)(啊|呀|呢|嘛|哈)?$/.test(
+      compact
+    ) ||
+    /^(你有哪些功能|有哪些功能|功能有哪些|有什么功能|介绍一下功能|介绍下功能|怎么用|如何使用|使用说明|介绍一下怎么用|介绍下怎么用|这个工具能做什么|paperforge能做什么)$/.test(
+      compact
+    )
   );
 }

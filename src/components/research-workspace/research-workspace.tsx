@@ -659,7 +659,7 @@ export function ResearchWorkspace({
           id: createMessageId("msg-local-assistant"),
           role: "assistant",
           content:
-            "我在。这里可以轻量聊天，但新建研究需要你给我一个具体研究想法；打开已有项目后，也可以直接问模型、均衡、性质分析或论文输出。",
+            "我在。这个工作台主要做博弈论论文流程：方向发现、联网来源、模型候选、符号均衡、性质分析、论文输出和 Markdown 导出。\n\n要开始新研究，请直接输入一个具体研究想法；打开已有项目后，也可以问我当前模型、均衡、性质分析或论文草稿哪里需要改。",
           createdAt: createTimestamp(),
         },
       ]);
