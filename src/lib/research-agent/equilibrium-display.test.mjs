@@ -209,11 +209,20 @@ test("selectEquilibriumMathArtifactsForDisplay filters and orders recent equilib
       source: "sympy",
       createdAt: 3,
     },
+    {
+      id: "second-order",
+      stepId: "review-equilibrium",
+      kind: "second_order_conditions",
+      title: "二阶条件",
+      status: "failed",
+      source: "sympy",
+      createdAt: 5,
+    },
   ];
 
   assert.deepEqual(
     selectEquilibriumMathArtifactsForDisplay(artifacts).map((artifact) => artifact.id),
-    ["coverage", "solve", "candidate"]
+    ["second-order", "coverage", "solve", "candidate"]
   );
 });
 
@@ -221,6 +230,10 @@ test("math artifact display labels are localized Chinese", () => {
   assert.equal(getMathArtifactKindLabel("equilibrium_candidate"), "均衡候选");
   assert.equal(getMathArtifactKindLabel("model_coverage_check"), "模型覆盖");
   assert.equal(getMathArtifactKindLabel("sympy_solve_check"), "独立求解");
+  assert.equal(getMathArtifactKindLabel("second_order_conditions"), "二阶条件");
+  assert.equal(getMathArtifactKindLabel("hessian_check"), "Hessian 检查");
+  assert.equal(getMathArtifactKindLabel("concavity_check"), "凹性证据");
+  assert.equal(getMathArtifactKindLabel("boundary_kkt_check"), "边界/KKT");
   assert.equal(getMathArtifactStatusLabel("manual_review"), "人工复核");
   assert.equal(getMathArtifactStatusLabel("condition_insufficient"), "条件不足");
 });

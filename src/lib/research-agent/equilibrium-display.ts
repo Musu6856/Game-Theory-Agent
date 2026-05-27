@@ -14,6 +14,10 @@ const EQUILIBRIUM_ARTIFACT_KINDS = new Set<ResearchMathArtifactKind>([
   "generated_foc_system",
   "model_coverage_check",
   "model_profit_foc",
+  "second_order_conditions",
+  "hessian_check",
+  "concavity_check",
+  "boundary_kkt_check",
   "solver_attempt",
   "sympy_residual_check",
   "sympy_solve_check",
@@ -91,6 +95,14 @@ export function getMathArtifactKindLabel(kind: ResearchMathArtifactKind) {
       return "模型覆盖";
     case "model_profit_foc":
       return "利润 FOC";
+    case "second_order_conditions":
+      return "二阶条件";
+    case "hessian_check":
+      return "Hessian 检查";
+    case "concavity_check":
+      return "凹性证据";
+    case "boundary_kkt_check":
+      return "边界/KKT";
     case "solver_attempt":
       return "求解尝试";
     case "sympy_residual_check":

@@ -183,19 +183,33 @@ The main risk is therefore not just "cannot solve." It is "looks solved after si
 
 **Tasks:**
 
-- [ ] Add math artifact kinds for `second_order_conditions`, `hessian_check`, `concavity_check`, and `boundary_kkt_check`.
-- [ ] For one-dimensional platform decisions, compute or parse the second derivative and require it to be negative at the candidate optimum, unless a stronger global concavity argument is provided.
-- [ ] For multi-dimensional decisions, compute or parse the Hessian with respect to each player's own decision vector and require negative definiteness, negative semidefiniteness with a qualification note, or an explicit manual-review status.
-- [ ] For constrained decisions such as subsidy nonnegativity, commission bounds, participation shares, or quality investment nonnegativity, require KKT or boundary-region analysis instead of only an interior FOC.
-- [ ] Mark unsupported SOC/Hessian/KKT checks as `manual_review` or `condition_insufficient`, not `passed`.
-- [ ] Add tests where FOC holds but SOC fails; expected result is no formal equilibrium promotion.
-- [ ] Add tests where FOC holds but the optimum is on a boundary; expected result is boundary/KKT draft or manual review, not an interior closed-form proof.
+- [x] Add math artifact kinds for `second_order_conditions`, `hessian_check`, `concavity_check`, and `boundary_kkt_check`.
+- [x] For one-dimensional platform decisions, compute or parse the second derivative and require it to be negative at the candidate optimum, unless a stronger global concavity argument is provided.
+- [x] For multi-dimensional decisions, compute or parse the Hessian with respect to each player's own decision vector and require negative definiteness, negative semidefiniteness with a qualification note, or an explicit manual-review status.
+- [x] For constrained decisions such as subsidy nonnegativity, commission bounds, participation shares, or quality investment nonnegativity, require KKT or boundary-region analysis instead of only an interior FOC.
+- [x] Mark unsupported SOC/Hessian/KKT checks as `manual_review` or `condition_insufficient`, not `passed`.
+- [x] Add tests where FOC holds but SOC fails; expected result is no formal equilibrium promotion.
+- [x] Add tests where FOC holds but the optimum is on a boundary; expected result is boundary/KKT draft or manual review, not an interior closed-form proof.
+
+**Stage 4 evidence, 2026-05-27:**
+
+- Added `src/lib/research-agent/equilibrium-optimality.ts` and tests for positive second derivatives, constrained boundary candidates, separable one-dimensional player objectives, interacting one-dimensional player objectives, and same-player multi-decision Hessian manual review.
+- The solver kernel now appends `second_order_conditions`, `hessian_check`, `concavity_check`, and `boundary_kkt_check` artifacts after model coverage and SymPy residual/solve checks. Failed optimality evidence routes to candidate repair; unsupported or condition-insufficient optimality evidence routes to manual review instead of a formal patch.
+- The executable Stage 4 checker remains deliberately bounded: it parses simple quadratic second derivatives for safe one-dimensional objectives, accepts separate one-dimensional player problems after SOC checks, and keeps same-player multi-decision Hessian/KKT cases as manual review unless stronger evidence is available.
+- Right-side equilibrium math artifacts now include localized labels for second-order, Hessian, concavity, and boundary/KKT evidence.
 
 **Acceptance checks:**
 
-- [ ] Every promoted formal equilibrium has either SOC/Hessian/concavity evidence or an explicit, user-visible manual-review exception.
-- [ ] A FOC-only candidate cannot unlock property analysis.
-- [ ] The right-side math artifacts show whether the result proves a local maximum, only a stationary point, or a boundary/manual-review case.
+- [x] Every promoted formal equilibrium has either SOC/Hessian/concavity evidence or an explicit, user-visible manual-review exception.
+- [x] A FOC-only candidate cannot unlock property analysis.
+- [x] The right-side math artifacts show whether the result proves a local maximum, only a stationary point, or a boundary/manual-review case.
+
+**Verification run, 2026-05-27:**
+
+- `node --test src\lib\research-agent\equilibrium-optimality.test.mjs src\lib\research-agent\equilibrium-solver-kernel.test.mjs src\lib\research-agent\equilibrium-display.test.mjs`
+- `npx tsc --noEmit`
+- `git diff --check`
+- `npm test`
 
 ### Stage 5: Benchmark Suite
 

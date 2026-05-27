@@ -359,6 +359,10 @@ export type ResearchMathArtifactKind =
   | "generated_foc_system"
   | "model_coverage_check"
   | "model_profit_foc"
+  | "second_order_conditions"
+  | "hessian_check"
+  | "concavity_check"
+  | "boundary_kkt_check"
   | "solver_attempt"
   | "sympy_residual_check"
   | "sympy_solve_check";

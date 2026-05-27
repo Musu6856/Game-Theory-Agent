@@ -18,6 +18,10 @@ import {
   createEquilibriumCoverageArtifact,
   evaluateEquilibriumCoverage,
 } from "./equilibrium-coverage.ts";
+import {
+  evaluateEquilibriumOptimality,
+  type CompiledEquilibriumSystem,
+} from "./equilibrium-optimality.ts";
 
 export type EquilibriumSolverKernelDecisionAction =
   | "accept_candidate"
@@ -123,18 +127,39 @@ export async function runEquilibriumSolverKernel({
       });
     },
   });
+  const compiledSystem = selectCompiledSystem(sympyReview.artifacts);
+  const substitutions = selectClosedFormSubstitutions(sympyReview.artifacts);
+  const optimalityReview = await evaluateEquilibriumOptimality({
+    compiledSystem,
+    substitutions,
+    equilibrium,
+    idPrefix: `${runId}-review-equilibrium`,
+    now,
+  });
+  for (const artifact of optimalityReview.artifacts) {
+    await onArtifact?.({
+      ...artifact,
+      runId,
+    });
+  }
 
   const issues = [
     ...candidateIssues,
     ...coverage.issues,
     ...consistencyReview.issues,
     ...sympyReview.issues,
+    ...optimalityReview.issues,
   ];
-  const checks = [...consistencyReview.checks, ...sympyReview.checks];
+  const checks = [
+    ...consistencyReview.checks,
+    ...sympyReview.checks,
+    ...optimalityReview.checks,
+  ];
   const decision = decideNextKernelAction({
     issues,
     coverageArtifact,
     sympyReview,
+    optimalityArtifacts: optimalityReview.artifacts,
   });
   const steps = [
     createCandidateValidationStep({
@@ -143,6 +168,7 @@ export async function runEquilibriumSolverKernel({
     }),
     createArtifactStep(coverageArtifact),
     ...sympyReview.artifacts.map(createArtifactStep),
+    ...optimalityReview.artifacts.map(createArtifactStep),
     createDecisionStep(decision),
   ];
 
@@ -150,7 +176,11 @@ export async function runEquilibriumSolverKernel({
     ok: issues.length === 0 && decision.action === "accept_candidate",
     issues,
     checks,
-    artifacts: [coverageArtifact, ...sympyReview.artifacts],
+    artifacts: [
+      coverageArtifact,
+      ...sympyReview.artifacts,
+      ...optimalityReview.artifacts,
+    ],
     steps,
     decision,
   };
@@ -186,18 +216,20 @@ function decideNextKernelAction({
   issues,
   coverageArtifact,
   sympyReview,
+  optimalityArtifacts,
 }: {
   issues: string[];
   coverageArtifact: ResearchMathArtifact;
   sympyReview: SympyEquilibriumReviewResult;
+  optimalityArtifacts: ResearchMathArtifact[];
 }): EquilibriumSolverKernelDecision {
   const modelRepairArtifacts = sympyReview.artifacts.filter(isModelRepairArtifact);
   if (modelRepairArtifacts.length > 0) {
     return {
       action: "repair_model",
-      title: "补强模型求解输入",
+      title: "Repair model inputs",
       reason:
-        "求解内核无法从当前模型资产得到完整、安全的利润函数、变量和 FOC 输入，应先补模型资产。",
+        "The solver kernel cannot compile complete, safe objective, variable, and FOC inputs from the current model assets.",
       artifactIds: modelRepairArtifacts.map((artifact) => artifact.id),
     };
   }
@@ -205,10 +237,49 @@ function decideNextKernelAction({
   const failedArtifacts = sympyReview.artifacts.filter(
     (artifact) => artifact.status === "failed"
   );
+  const failedOptimalityArtifacts = optimalityArtifacts.filter(
+    (artifact) => artifact.status === "failed"
+  );
+  if (failedOptimalityArtifacts.length > 0) {
+    return {
+      action: "repair_equilibrium_candidate",
+      title: "Repair optimality evidence",
+      reason:
+        "The candidate may satisfy first-order checks, but second-order, Hessian, or concavity evidence shows it is not a verified profit maximum.",
+      artifactIds: failedOptimalityArtifacts.map((artifact) => artifact.id),
+    };
+  }
+
   const candidateFailureArtifacts = failedArtifacts.filter(
     isEquilibriumCandidateRepairArtifact
   );
-  if (candidateFailureArtifacts.length > 0 || issues.length > 0) {
+  if (candidateFailureArtifacts.length > 0) {
+    return {
+      action: "repair_equilibrium_candidate",
+      title: "Repair equilibrium candidate",
+      reason:
+        "The candidate failed structured residual or independent solve checks, so the closed form and derivation should be repaired from the saved math artifacts.",
+      artifactIds: candidateFailureArtifacts.map((artifact) => artifact.id),
+    };
+  }
+
+  const blockingOptimalityArtifacts = optimalityArtifacts.filter(
+    (artifact) =>
+      artifact.status === "manual_review" ||
+      artifact.status === "unsupported" ||
+      artifact.status === "condition_insufficient"
+  );
+  if (blockingOptimalityArtifacts.length > 0) {
+    return {
+      action: "review_manually",
+      title: "Review optimality evidence",
+      reason:
+        "The equilibrium candidate needs second-order, Hessian, concavity, or boundary/KKT evidence before it can be treated as a formal profit-maximizing equilibrium.",
+      artifactIds: blockingOptimalityArtifacts.map((artifact) => artifact.id),
+    };
+  }
+
+  if (issues.length > 0) {
     if (isBlockingCoverageArtifact(coverageArtifact)) {
       return {
         action: "review_manually",
@@ -221,9 +292,9 @@ function decideNextKernelAction({
 
     return {
       action: "repair_equilibrium_candidate",
-      title: "修复均衡候选",
+      title: "Repair equilibrium candidate",
       reason:
-        "候选均衡没有通过结构、符号、FOC 残差或独立求解复核，应基于已保存数学产物修复闭式解和推导。",
+        "The candidate did not pass structural, symbolic, FOC residual, or independent solve review.",
       artifactIds:
         candidateFailureArtifacts.length > 0
           ? candidateFailureArtifacts.map((artifact) => artifact.id)
@@ -237,20 +308,37 @@ function decideNextKernelAction({
       artifact.status === "unsupported" ||
       artifact.status === "condition_insufficient"
   );
+  const manualOptimalityArtifacts = optimalityArtifacts.filter(
+    (artifact) =>
+      artifact.status === "manual_review" ||
+      artifact.status === "unsupported" ||
+      artifact.status === "condition_insufficient"
+  );
+  if (manualOptimalityArtifacts.length > 0) {
+    return {
+      action: "review_manually",
+      title: "Review optimality evidence",
+      reason:
+        "The equilibrium candidate needs second-order, Hessian, concavity, or boundary/KKT evidence before it can be treated as a formal profit-maximizing equilibrium.",
+      artifactIds: manualOptimalityArtifacts.map((artifact) => artifact.id),
+    };
+  }
+
   if (manualArtifacts.length > 0) {
     return {
       action: "review_manually",
-      title: "人工复核数学产物",
+      title: "Review math artifacts",
       reason:
-        "求解内核已保存中间数学产物，但部分 FOC、闭式解或 SymPy 输入暂不能自动复核。",
+        "The solver kernel saved intermediate math artifacts, but some FOC, closed-form, or SymPy inputs cannot be automatically verified yet.",
       artifactIds: manualArtifacts.map((artifact) => artifact.id),
     };
   }
 
   return {
     action: "accept_candidate",
-    title: "接受候选并进入审核 patch",
-    reason: "候选均衡通过当前受限求解内核的结构检查、FOC 残差和独立求解对照。",
+    title: "Accept candidate for review patch",
+    reason:
+      "The candidate passed the current bounded solver-kernel structural, residual, independent solve, and optimality checks.",
     artifactIds: [],
   };
 }
@@ -279,6 +367,68 @@ function isBlockingCoverageArtifact(artifact: ResearchMathArtifact) {
       mechanism === "boundary"
     );
   });
+}
+
+function selectCompiledSystem(
+  artifacts: ResearchMathArtifact[]
+): CompiledEquilibriumSystem {
+  const artifact = artifacts.find(
+    (item) => item.kind === "compiled_game_system"
+  );
+  const output =
+    artifact?.output && typeof artifact.output === "object"
+      ? (artifact.output as Partial<CompiledEquilibriumSystem>)
+      : {};
+
+  return {
+    variables: parseStringArray(output.variables),
+    modelDecisionVariables: parseStringArray(output.modelDecisionVariables),
+    parameters: parseStringArray(output.parameters),
+    objectives: parseObjectives(output.objectives),
+    assumptions: parseStringArray(output.assumptions),
+    issues: parseStringArray(output.issues),
+  };
+}
+
+function selectClosedFormSubstitutions(artifacts: ResearchMathArtifact[]) {
+  const artifact = artifacts.find(
+    (item) => item.kind === "closed_form_substitutions"
+  );
+  const output =
+    artifact?.output && typeof artifact.output === "object"
+      ? (artifact.output as { substitutions?: unknown })
+      : {};
+  const substitutions = output.substitutions;
+
+  if (!substitutions || typeof substitutions !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(substitutions as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+}
+
+function parseStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function parseObjectives(value: unknown): CompiledEquilibriumSystem["objectives"] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object")
+    )
+    .map((item) => ({
+      profitFunctionId:
+        typeof item.profitFunctionId === "string" ? item.profitFunctionId : "",
+      platform: typeof item.platform === "string" ? item.platform : "",
+      expression: typeof item.expression === "string" ? item.expression : "",
+      variable: typeof item.variable === "string" ? item.variable : "",
+    }))
+    .filter((item) => item.expression && item.variable);
 }
 
 function createCandidateValidationStep({
@@ -328,6 +478,7 @@ function createDecisionStep(
 
 function isEquilibriumCandidateRepairArtifact(artifact: ResearchMathArtifact) {
   if (
+    artifact.kind !== "closed_form_substitutions" &&
     artifact.kind !== "sympy_residual_check" &&
     artifact.kind !== "solver_attempt" &&
     artifact.kind !== "sympy_solve_check"

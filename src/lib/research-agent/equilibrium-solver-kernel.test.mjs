@@ -187,6 +187,10 @@ test("equilibrium solver kernel records an ordered tool loop for a verified cand
       "sympy_residual_check",
       "solver_attempt",
       "sympy_solve_check",
+      "second_order_conditions",
+      "hessian_check",
+      "concavity_check",
+      "boundary_kkt_check",
     ]
   );
   assert.deepEqual(
@@ -201,6 +205,10 @@ test("equilibrium solver kernel records an ordered tool loop for a verified cand
       "sympy_residual_check",
       "solver_attempt",
       "sympy_solve_check",
+      "second_order_conditions",
+      "hessian_check",
+      "concavity_check",
+      "boundary_kkt_check",
       "planner_decision",
     ]
   );
@@ -312,4 +320,141 @@ test("equilibrium solver kernel asks to repair model inputs before solving arbit
     "agent-equilibrium-kernel-model-gap-test-review-equilibrium-1-compiled_game_system",
     "agent-equilibrium-kernel-model-gap-test-review-equilibrium-4-generated_foc_system",
   ]);
+});
+
+test("equilibrium solver kernel rejects FOC candidates whose SOC proves a minimum", async () => {
+  const project = createProjectWithExplicitProfitModel();
+  const result = await runEquilibriumSolverKernel({
+    project: {
+      ...project,
+      hotellingModel: {
+        ...project.hotellingModel,
+        profitFunctions: [
+          {
+            id: "profit-a",
+            platform: "A",
+            expression: "tau_A^2",
+            notes: "convex objective",
+          },
+        ],
+        assumptions: ["tau_A >= 0"],
+      },
+    },
+    equilibrium: {
+      ...createSolvedCandidate("tau_A^* = 0"),
+      focs: ["2*tau_A = 0"],
+      conditions: ["tau_A >= 0", "second-order condition claimed"],
+      derivation: "FOC gives tau_A = 0 and claims this is optimal.",
+    },
+    now: 1710000000000,
+    runId: "agent-equilibrium-kernel-soc-fail-test",
+    focGenerationChecker: async () => ({
+      ok: true,
+      status: "passed",
+      message: "generated model FOC",
+      residuals: ["2*tau_A"],
+    }),
+    checker: async () => ({
+      ok: true,
+      status: "passed",
+      message: "residuals vanish",
+      residuals: ["0"],
+    }),
+    solveChecker: async () => ({
+      ok: true,
+      status: "passed",
+      message: "candidate matches independent solve",
+      solutions: [{ tau_A: "0" }],
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.action, "repair_equilibrium_candidate");
+  assert.ok(
+    result.artifacts.some(
+      (artifact) =>
+        artifact.kind === "second_order_conditions" &&
+        artifact.status === "failed"
+    )
+  );
+  assert.match(result.issues.join("\n"), /second derivative/i);
+});
+
+test("equilibrium solver kernel requires boundary or KKT evidence for boundary candidates", async () => {
+  const project = createProjectWithExplicitProfitModel();
+  const result = await runEquilibriumSolverKernel({
+    project: {
+      ...project,
+      hotellingModel: {
+        ...project.hotellingModel,
+        symbols: [
+          {
+            ...project.hotellingModel.symbols[0],
+            id: "s-a",
+            symbol: "s_A",
+            baseSymbol: "s",
+            codeName: "s_A",
+            name: "platform A subsidy",
+            meaning: "platform A subsidy",
+            role: "decision",
+            assumption: "s_A >= 0",
+          },
+        ],
+        timing: [
+          {
+            id: "subsidy",
+            order: 1,
+            name: "subsidy",
+            decisions: ["s_A"],
+          },
+        ],
+        profitFunctions: [
+          {
+            id: "profit-a",
+            platform: "A",
+            expression: "-s_A^2",
+            notes: "concave subsidy objective",
+          },
+        ],
+        assumptions: ["s_A >= 0"],
+      },
+    },
+    equilibrium: {
+      ...createSolvedCandidate("s_A^* = 0"),
+      focs: ["-2*s_A = 0"],
+      conditions: ["s_A >= 0", "interior FOC"],
+      derivation: "FOC gives s_A = 0.",
+    },
+    now: 1710000000000,
+    runId: "agent-equilibrium-kernel-boundary-test",
+    focGenerationChecker: async () => ({
+      ok: true,
+      status: "passed",
+      message: "generated model FOC",
+      residuals: ["-2*s_A"],
+    }),
+    checker: async () => ({
+      ok: true,
+      status: "passed",
+      message: "residuals vanish",
+      residuals: ["0"],
+    }),
+    solveChecker: async () => ({
+      ok: true,
+      status: "passed",
+      message: "candidate matches independent solve",
+      solutions: [{ s_A: "0" }],
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.decision.action, "review_manually");
+  assert.ok(
+    result.artifacts.some(
+      (artifact) =>
+        artifact.kind === "boundary_kkt_check" &&
+        artifact.status === "condition_insufficient"
+    )
+  );
+  assert.match(result.issues.join("\n"), /KKT|boundary/i);
 });
