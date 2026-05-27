@@ -1,10 +1,10 @@
 import type {
-  EquilibriumResult,
   HotellingModel,
   PropertyAnalysis,
   ResearchProject,
   SymbolDefinition,
 } from "./types";
+import { assessProjectEquilibriumEvidence } from "./research-agent/equilibrium-evidence.ts";
 
 type ResearchPhase = NonNullable<NonNullable<ResearchProject["researchSession"]>["phase"]>;
 
@@ -27,7 +27,7 @@ export function buildResearchProjectMarkdown(project: ResearchProject): string {
     lines.push(modelSection);
   }
 
-  const equilibriumSection = buildEquilibriumSection(project.equilibriumResult);
+  const equilibriumSection = buildEquilibriumSection(project);
   if (equilibriumSection) {
     pushBlankLine(lines);
     lines.push(equilibriumSection);
@@ -185,10 +185,18 @@ function buildModelSection(model?: HotellingModel) {
   return lines.join("\n");
 }
 
-function buildEquilibriumSection(equilibrium?: EquilibriumResult) {
+function buildEquilibriumSection(project: ResearchProject) {
+  const equilibrium = project.equilibriumResult;
   if (!equilibrium) return null;
+  const assessment = assessProjectEquilibriumEvidence(project);
 
-  const lines: string[] = ["## 符号均衡", `- 状态：${equilibrium.status}`];
+  const lines: string[] = [
+    "## 符号均衡",
+    `- 状态：${equilibrium.status}`,
+    `- 证据状态：${assessment.status}`,
+    `- 下游使用：${assessment.canUseForFormalComparativeStatics ? "可用于正式比较静态" : "不能用于正式比较静态"}`,
+    `- 最优性证据：${assessment.optimalitySummary}`,
+  ];
   if (equilibrium.concept.trim()) {
     lines.push("", "### 概念", equilibrium.concept.trim());
   }
@@ -212,13 +220,27 @@ function buildEquilibriumSection(equilibrium?: EquilibriumResult) {
     });
   }
 
-  if (equilibrium.status === "symbolic_failure") {
+  if (!assessment.canCiteAsFormalEquilibrium) {
     lines.push(
       "",
       "### 未得到闭式解",
-      "当前内容是符号推导草稿或隐式系统草稿，不应作为论文中的闭式均衡解。"
+      assessment.summary
     );
-    if (equilibrium.closedForm.trim()) {
+    if (equilibrium.solverScratchpad?.implicitSystem?.length) {
+      lines.push(
+        "",
+        "#### 隐式系统草稿",
+        ...equilibrium.solverScratchpad.implicitSystem.map((item) => `- ${item}`)
+      );
+    }
+    if (equilibrium.solverScratchpad?.reactionFunctions?.length) {
+      lines.push(
+        "",
+        "#### 反应函数草稿",
+        ...equilibrium.solverScratchpad.reactionFunctions.map((item) => `- ${item}`)
+      );
+    }
+    if (equilibrium.closedForm.trim() && assessment.status !== "draft") {
       lines.push("", equilibrium.closedForm.trim());
     }
   } else if (equilibrium.closedForm.trim()) {
@@ -357,7 +379,15 @@ function buildSympyReviewScriptSection(project: ResearchProject) {
 function buildSympyReviewScript(project: ResearchProject) {
   const model = project.hotellingModel;
   const equilibrium = project.equilibriumResult;
-  if (!model || !equilibrium || equilibrium.status !== "solved") return "";
+  const assessment = assessProjectEquilibriumEvidence(project);
+  if (
+    !model ||
+    !equilibrium ||
+    equilibrium.status !== "solved" ||
+    !assessment.canUseForFormalComparativeStatics
+  ) {
+    return "";
+  }
 
   const symbolNames = getModelSymbolNames(model);
   if (symbolNames.length === 0) return "";

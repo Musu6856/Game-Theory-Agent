@@ -3,6 +3,7 @@ import type {
   AgentStep,
   AgentTraceEvent,
   EvidenceSource,
+  ResearchMathArtifact,
   ResearchAssetChange,
   ResearchAssetKind,
   ResearchAssetVersionEvent,
@@ -13,6 +14,10 @@ import { buildAgentTraceReplay } from "./trace-replay.ts";
 import { buildProjectMathVerificationSummary } from "./math-verification-summary.ts";
 import { buildPaperSectionReview } from "./paper-section-review.ts";
 import { buildVersionReviewSummary } from "./version-review-summary.ts";
+import {
+  assessProjectEquilibriumEvidence,
+  isOptimalityArtifactKind,
+} from "./equilibrium-evidence.ts";
 
 export function buildProjectAuditMarkdown(project: ResearchProject) {
   const session = project.researchSession;
@@ -46,6 +51,7 @@ export function buildProjectAuditMarkdown(project: ResearchProject) {
   appendVersionReviewSummary(lines, versionHistory);
   appendMathVerificationSummary(lines, project);
   appendModelCoverageSummary(lines, session);
+  appendEquilibriumOptimalityEvidence(lines, project);
   appendPaperSectionReview(lines, project);
   appendAssetVersionHistory(lines, versionHistory);
 
@@ -354,6 +360,82 @@ function appendModelCoverageSummary(lines: string[], session?: ResearchSession) 
       artifact.issues.forEach((issue) => lines.push(`- ${issue}`));
     }
   });
+}
+
+function appendEquilibriumOptimalityEvidence(
+  lines: string[],
+  project: ResearchProject
+) {
+  const assessment = assessProjectEquilibriumEvidence(project);
+  const artifacts =
+    project.researchSession?.mathArtifacts?.filter((artifact) =>
+      isOptimalityArtifactKind(artifact.kind)
+    ) ?? [];
+
+  lines.push(
+    "",
+    "## 均衡最优性证据",
+    "",
+    `- 证据状态：${formatEquilibriumEvidenceStatus(assessment.status)}`,
+    `- 下游使用：${assessment.canUseForFormalComparativeStatics ? "可用于正式比较静态" : "不能用于正式比较静态"}`,
+    `- 摘要：${assessment.summary}`,
+    `- 最优性证据：${assessment.optimalitySummary}`,
+    `- 建议下一步：${assessment.nextAction}`
+  );
+
+  if (artifacts.length === 0) {
+    lines.push("", "暂无二阶条件、Hessian、凹性或边界/KKT 证据记录。");
+    return;
+  }
+
+  artifacts.slice(-8).forEach((artifact, index) => {
+    lines.push(
+      "",
+      `### ${index + 1}. ${artifact.title}`,
+      "",
+      `- 类型：${formatOptimalityArtifactKind(artifact.kind)}`,
+      `- 状态：${formatMathCheckStatus(artifact.status)}`,
+      `- AgentRun：${artifact.runId ?? "未记录"}`,
+      `- 步骤：${artifact.stepId}`
+    );
+
+    if (artifact.issues?.length) {
+      lines.push("", "#### 问题");
+      artifact.issues.forEach((issue) => lines.push(`- ${issue}`));
+    }
+  });
+}
+
+function formatEquilibriumEvidenceStatus(
+  status: ReturnType<typeof assessProjectEquilibriumEvidence>["status"]
+) {
+  switch (status) {
+    case "formal":
+      return "正式均衡";
+    case "draft":
+      return "草稿/隐式系统";
+    case "review_required":
+      return "需要人工复核";
+    case "failed":
+      return "未通过";
+    case "not_ready":
+      return "未就绪";
+  }
+}
+
+function formatOptimalityArtifactKind(kind: ResearchMathArtifact["kind"]) {
+  switch (kind) {
+    case "second_order_conditions":
+      return "二阶条件";
+    case "hessian_check":
+      return "Hessian 检查";
+    case "concavity_check":
+      return "凹性证据";
+    case "boundary_kkt_check":
+      return "边界/KKT";
+    default:
+      return kind;
+  }
 }
 
 function appendPaperSectionReview(lines: string[], project: ResearchProject) {

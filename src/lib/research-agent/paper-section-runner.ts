@@ -24,6 +24,7 @@ import {
   type AgentRun,
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
+import { assessProjectEquilibriumEvidence } from "./equilibrium-evidence.ts";
 
 export type PaperSectionRevisionAgentRequest = {
   rawIdea: string;
@@ -235,6 +236,7 @@ function revisePaperSection({
   const direction = project.researchSession?.assetSummary.currentDirection;
   const model = project.hotellingModel;
   const equilibrium = project.equilibriumResult;
+  const equilibriumEvidence = assessProjectEquilibriumEvidence(project);
   const analyses = project.propertyAnalyses ?? [];
   const trimmedInstruction = instruction?.trim();
 
@@ -251,9 +253,9 @@ function revisePaperSection({
       model
         ? `模型依据：参与方为 ${model.sides.consumerSideName} 与 ${model.sides.merchantSideName}，平台为 ${model.platforms.join("、")}；本章应与当前假设、效用函数和利润函数保持一致。`
         : "模型依据：当前尚未应用稳定模型设定，本章只能保留为研究动机或占位草稿。",
-      equilibrium?.status === "solved"
-        ? `均衡依据：当前已有闭式结果和存在条件，本章引用均衡时应以右侧最新均衡资产为准。`
-        : "均衡依据：当前均衡尚未稳定，本章不应写成最终结论。",
+      equilibriumEvidence.canCiteAsFormalEquilibrium
+        ? "均衡依据：当前均衡可作为正式结果引用；引用时仍应保留存在条件和最优性证据。"
+        : `均衡依据：${equilibriumEvidence.summary} 本章不应写成最终均衡结论。`,
       analyses.length > 0
         ? `性质依据：当前已有 ${analyses.length} 条比较静态或命题草稿，本章应核对命题编号、符号结果和经济直觉。`
         : "性质依据：当前尚无稳定性质分析，本章不应新增未经审阅的命题。",
@@ -279,8 +281,12 @@ function reviewPaperSectionRevision(
     issues.push("本章依赖模型设定，但当前没有已应用的模型资产。");
   }
 
-  if (dependsOnEquilibrium(section) && project.equilibriumResult?.status !== "solved") {
-    issues.push("本章依赖均衡推导，但当前均衡结果尚未稳定。");
+  const equilibriumEvidence = assessProjectEquilibriumEvidence(project);
+  if (
+    dependsOnEquilibrium(section) &&
+    !equilibriumEvidence.canCiteAsFormalEquilibrium
+  ) {
+    issues.push(equilibriumEvidence.summary);
   }
 
   if (dependsOnProperties(section) && (project.propertyAnalyses?.length ?? 0) === 0) {

@@ -30,6 +30,10 @@ import {
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
 import { reviewPropertyAnalysesWithSympy } from "./sympy-property-review.ts";
+import {
+  assessProjectEquilibriumEvidence,
+  isFormalEquilibriumReady,
+} from "./equilibrium-evidence.ts";
 
 export type PropertyAnalysisAgentRequest = {
   rawIdea: string;
@@ -97,18 +101,22 @@ export async function runPropertyAnalysisAgent(
     );
   };
 
-  if (request.project.equilibriumResult?.status !== "solved") {
+  const equilibriumEvidence = assessProjectEquilibriumEvidence(request.project);
+  if (!isFormalEquilibriumReady(equilibriumEvidence)) {
     await recordStepStatus("prepare-properties", "running");
     agentRun = appendTraceEvent(
       agentRun,
       {
         stepId: "prepare-properties",
         type: "fallback",
-        message:
-          "性质分析需要先应用 solved 状态的均衡结果，暂不生成候选。",
+        message: `性质分析需要先确认可正式使用的均衡结果；${equilibriumEvidence.summary}`,
         metadata: {
           hasEquilibrium: Boolean(request.project.equilibriumResult),
           equilibriumStatus: request.project.equilibriumResult?.status,
+          evidenceStatus: equilibriumEvidence.status,
+          blockingArtifactIds: equilibriumEvidence.blockingArtifacts.map(
+            (artifact) => artifact.id
+          ),
         },
       },
       now
@@ -119,15 +127,18 @@ export async function runPropertyAnalysisAgent(
       status: "failed",
       currentStepId: undefined,
       pauseReason:
-        "性质分析需要先应用 solved 状态的均衡 patch。",
+        "性质分析需要先确认闭式/正式均衡及其最优性证据。",
       completedAt: now,
     };
 
     return {
       project: attachAgentRun(request.project, agentRun),
       usedFallback: false,
-      assistantMessage:
-        "性质分析需要先应用 solved 状态的均衡 patch；我没有生成新的性质分析修改建议。",
+      assistantMessage: [
+        "我没有生成新的性质分析修改建议，因为正式比较静态必须建立在已确认的均衡上。",
+        equilibriumEvidence.summary,
+        equilibriumEvidence.nextAction,
+      ].join("\n"),
       agentRun,
     };
   }

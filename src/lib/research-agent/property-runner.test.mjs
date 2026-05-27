@@ -117,6 +117,51 @@ test("property analysis agent stops before drafting without an applied solved eq
   );
 });
 
+test("property analysis agent stops when solved equilibrium still needs optimality review", async () => {
+  const project = {
+    ...createSolvedProject(),
+    researchSession: {
+      ...createSolvedProject().researchSession,
+      mathArtifacts: [
+        {
+          id: "boundary-review",
+          stepId: "review-equilibrium",
+          kind: "boundary_kkt_check",
+          title: "Boundary and KKT check",
+          status: "condition_insufficient",
+          source: "sympy",
+          createdAt: 1710000000000,
+          issues: ["Boundary candidate needs KKT evidence."],
+        },
+      ],
+    },
+  };
+  let attempts = 0;
+
+  const result = await runPropertyAnalysisAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "property-agent-optimality-guard-test",
+      now: 1710000000000,
+      analyzeProperties: async () => {
+        attempts += 1;
+        return {
+          project,
+          usedFallback: false,
+          assistantMessage: "should not draft properties",
+        };
+      },
+    }
+  );
+
+  assert.equal(attempts, 0);
+  assert.equal(result.agentRun.status, "failed");
+  assert.match(result.assistantMessage, /KKT|最优性|人工复核|条件不足/);
+});
+
 test("property analysis agent proposes a reviewable properties patch with trace", async () => {
   const project = createSolvedProject();
   const candidateAnalyses = createCandidateAnalyses();

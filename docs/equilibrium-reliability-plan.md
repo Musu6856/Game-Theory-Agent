@@ -303,17 +303,32 @@ The main risk is therefore not just "cannot solve." It is "looks solved after si
 
 **Tasks:**
 
-- [ ] Formal comparative statics require a confirmed formal equilibrium.
-- [ ] If only an implicit system exists, generate only implicit comparative-statics draft language.
-- [ ] Paper output must state whether the equilibrium is closed form, reaction-function based, implicit, draft-only, or manual-review.
-- [ ] Paper output must state whether the equilibrium is a proven maximum, a stationary point under manual review, or a boundary/KKT case.
-- [ ] Audit export must include model coverage, omitted mechanisms, optimality evidence, and promotion decisions.
+- [x] Formal comparative statics require a confirmed formal equilibrium.
+- [x] If only an implicit system exists, generate only implicit comparative-statics draft language.
+- [x] Paper output must state whether the equilibrium is closed form, reaction-function based, implicit, draft-only, or manual-review.
+- [x] Paper output must state whether the equilibrium is a proven maximum, a stationary point under manual review, or a boundary/KKT case.
+- [x] Audit export must include model coverage, omitted mechanisms, optimality evidence, and promotion decisions.
+
+**Stage 7 evidence, 2026-05-27:**
+
+- Added `src/lib/research-agent/equilibrium-evidence.ts` as the shared downstream promotion gate. It classifies equilibrium assets as formal, draft, review-required, failed, or not-ready, and inspects optimality artifacts (`second_order_conditions`, `hessian_check`, `concavity_check`, `boundary_kkt_check`) before downstream use.
+- `property-runner` and `research-flow` now block formal comparative statics when a solved equilibrium still has failed, condition-insufficient, unsupported, or manual-review optimality evidence. FOC-only solved outputs without textual SOC/Hessian/concavity/KKT evidence are treated as review-required.
+- `paper-runner`, `paper-section-runner`, and Markdown export now label equilibrium output as closed form, implicit system, reaction-function draft, draft-only, or manual-review instead of citing every solved-looking object as a proved equilibrium.
+- Project audit export now includes a dedicated equilibrium optimality evidence section with downstream-use status, optimality summary, blocking artifacts, and next action.
 
 **Acceptance checks:**
 
-- [ ] Paper output cannot cite a draft/scaffold or FOC-only stationary point as if it were a proved equilibrium.
-- [ ] Property analysis cannot silently use a simplified fallback equilibrium.
-- [ ] Exported audit tells a future reviewer exactly which equilibrium status the paper used.
+- [x] Paper output cannot cite a draft/scaffold or FOC-only stationary point as if it were a proved equilibrium.
+- [x] Property analysis cannot silently use a simplified fallback equilibrium.
+- [x] Exported audit tells a future reviewer exactly which equilibrium status the paper used.
+
+**Verification run, 2026-05-27:**
+
+- `node --test src\lib\research-agent\equilibrium-evidence.test.mjs src\lib\research-flow-equilibrium-evidence.test.mjs src\lib\research-flow.test.mjs src\lib\research-agent\property-runner.test.mjs src\lib\research-agent\paper-runner.test.mjs src\lib\research-agent\paper-section-runner.test.mjs src\lib\research-export.test.mjs src\lib\research-export-equilibrium-evidence.test.mjs src\lib\research-agent\project-audit.test.mjs src\lib\research-agent\project-audit-equilibrium-evidence.test.mjs`
+- `node --test src\lib\research-agent\controller-reliability.test.mjs src\lib\research-agent\equilibrium-dynamic-planner.test.mjs`
+- `npx tsc --noEmit`
+- `git diff --check`
+- `npm test` (`494` tests: `493` pass, `1` skipped, `0` failed)
 
 ---
 
@@ -352,8 +367,9 @@ Stop and re-evaluate if three consecutive fixes still produce simplified solved 
 
 As of 2026-05-27:
 
-- The next immediate implementation target is Stage 3: model coverage and anti-simplification checks.
+- Stages 1-7 are implemented on the equilibrium reliability branch.
 - The project should not continue presenting the default symmetric Hotelling fallback as a reliable final answer for mechanism-rich directions.
-- The project should not treat FOC-only evidence as sufficient for a formal profit-maximizing equilibrium. Second-order, Hessian, concavity, KKT, or boundary evidence must be visible before promotion.
-- The middle chat should become useful again for long derivations and solver scratch work.
+- The project should not treat FOC-only evidence as sufficient for a formal profit-maximizing equilibrium. Second-order, Hessian, concavity, KKT, or boundary evidence must be visible before promotion and before downstream comparative statics.
+- The middle chat should remain useful for long derivations and solver scratch work.
 - The right-side patch system remains valuable, but only as the promotion/review layer after derivation quality is established.
+- Next work should be product validation against benchmark/model examples, not another claim that the solver is a universal CAS.

@@ -6,6 +6,7 @@ import type {
   ResearchSessionDecision,
   ResearchSessionEquilibriumStatus,
 } from "./types";
+import { assessProjectEquilibriumEvidence } from "./research-agent/equilibrium-evidence.ts";
 
 export type ResearchFlowState = {
   pendingKind?: ResearchSessionDecision["kind"];
@@ -202,8 +203,13 @@ export function getResearchFlowState(
   const hasGeneratedEquilibriumResult = isGeneratedEquilibriumStatus(
     equilibriumStatus
   );
+  const equilibriumEvidence = project
+    ? assessProjectEquilibriumEvidence(project)
+    : null;
   const hasPropertyAnalyses = Boolean(project?.propertyAnalyses?.length);
-  const hasSolvableEquilibrium = isUsableEquilibriumStatus(equilibriumStatus);
+  const hasSolvableEquilibrium = Boolean(
+    equilibriumEvidence?.canUseForFormalComparativeStatics
+  );
   const assetFreshness =
     session?.assetFreshness ?? createFreshResearchAssetFreshness();
   const hasPendingModelPatch = Boolean(
@@ -287,14 +293,12 @@ export function getResearchFlowState(
       ? formatAnalysisStatus(project?.propertyAnalyses?.length ?? 0)
       : canAnalyzeProperties
         ? "等待生成性质分析"
+        : equilibriumEvidence?.status === "review_required"
+          ? "均衡最优性证据仍需人工复核或条件不足"
         : isDraftEquilibriumStatus(equilibriumStatus)
           ? "等待闭式均衡完成"
           : "等待符号均衡完成",
   };
-}
-
-function isUsableEquilibriumStatus(status?: EquilibriumResult["status"]) {
-  return status === "solved";
 }
 
 function isGeneratedEquilibriumStatus(status?: EquilibriumResult["status"]) {

@@ -3,6 +3,7 @@ import type {
   ResearchMathArtifact,
   ResearchProject,
 } from "../types";
+import { isOptimalityArtifactKind } from "./equilibrium-evidence.ts";
 
 export type EquilibriumKernelPlannerAction =
   | "apply_pending_patch"
@@ -169,6 +170,7 @@ function isEquilibriumArtifact(artifact: ResearchMathArtifact) {
     artifact.kind === "foc_residuals" ||
     artifact.kind === "generated_foc_system" ||
     artifact.kind === "model_profit_foc" ||
+    isOptimalityArtifactKind(artifact.kind) ||
     artifact.kind === "solver_attempt" ||
     artifact.kind === "sympy_residual_check" ||
     artifact.kind === "sympy_solve_check"

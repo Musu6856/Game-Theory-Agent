@@ -77,6 +77,84 @@ test("paper output agent proposes reviewable draft sections with trace", async (
   );
 });
 
+test("paper output labels implicit equilibrium as draft-only instead of closed-form proof", async () => {
+  const project = {
+    ...createAnalyzedProject(),
+    equilibriumResult: {
+      ...createAnalyzedProject().equilibriumResult,
+      status: "implicit_system",
+      closedForm: "",
+      solverScratchpad: {
+        status: "implicit_system",
+        implicitSystem: ["F_tau = 0", "F_s = 0"],
+      },
+    },
+    propertyAnalyses: [],
+  };
+
+  const result = await runPaperOutputAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "paper-agent-implicit-equilibrium-test",
+      now: 1710000000000,
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const sections = patch?.changes.find((change) => change.path === "sections")
+    ?.value;
+  const equilibriumSection = Array.isArray(sections)
+    ? sections.find((section) => section.id === "paper-equilibrium")
+    : undefined;
+
+  assert.match(equilibriumSection?.content ?? "", /隐式|草稿|不能作为正式闭式均衡/);
+  assert.doesNotMatch(equilibriumSection?.content ?? "", /闭式结果为/);
+});
+
+test("paper output reports manual-review optimality evidence", async () => {
+  const project = {
+    ...createAnalyzedProject(),
+    researchSession: {
+      ...createAnalyzedProject().researchSession,
+      mathArtifacts: [
+        {
+          id: "hessian-review",
+          stepId: "review-equilibrium",
+          kind: "hessian_check",
+          title: "Hessian check",
+          status: "manual_review",
+          source: "sympy",
+          createdAt: 1710000000000,
+          issues: ["Same-player multi-decision objective needs Hessian review."],
+        },
+      ],
+    },
+  };
+
+  const result = await runPaperOutputAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "paper-agent-optimality-evidence-test",
+      now: 1710000000000,
+    }
+  );
+
+  const patch = result.project.researchSession?.assetPatches?.[0];
+  const sections = patch?.changes.find((change) => change.path === "sections")
+    ?.value;
+  const equilibriumSection = Array.isArray(sections)
+    ? sections.find((section) => section.id === "paper-equilibrium")
+    : undefined;
+
+  assert.match(equilibriumSection?.content ?? "", /Hessian|人工复核|最优性/);
+});
+
 test("paper output agent keeps draft sections pending until applied", async () => {
   const project = createAnalyzedProject();
 

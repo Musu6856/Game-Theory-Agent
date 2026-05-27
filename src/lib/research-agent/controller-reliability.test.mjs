@@ -522,7 +522,7 @@ test("recommendNextAgentStep ignores pre-repair model-gap artifacts after model 
   assert.notEqual(recommendation.action?.kind, "answer_model_question");
 });
 
-test("recommendNextAgentStep still opens property analysis when solved equilibrium only has manual-review artifacts", () => {
+test("recommendNextAgentStep blocks property analysis when solved equilibrium still needs optimality review", () => {
   const recommendation = recommendNextAgentStep({
     id: "project-1",
     createdAt: 1710000000000,
@@ -534,6 +534,62 @@ test("recommendNextAgentStep still opens property analysis when solved equilibri
     references: [],
     hotellingModel: createModel(),
     equilibriumResult: createEquilibrium(),
+    researchSession: {
+      phase: "analysis",
+      directions: [],
+      messages: [],
+      assetSummary: {
+        confirmedAssumptions: [],
+        utilityFunctions: [],
+        equilibriumStatus: "solved",
+        nextActions: [],
+        pendingDecision: {
+          kind: "analyze_properties",
+          prompt: "equilibrium solved",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "artifact-boundary-kkt-review",
+          runId: "agent-equilibrium",
+          stepId: "review-equilibrium",
+          patchId: "patch-equilibrium",
+          kind: "boundary_kkt_check",
+          title: "Boundary and KKT check",
+          status: "condition_insufficient",
+          source: "sympy",
+          issues: ["Boundary candidate needs KKT evidence."],
+          createdAt: 1710000000000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(recommendation.status, "blocked");
+  assert.equal(recommendation.targetTab, "quality");
+  assert.equal(recommendation.action?.kind, undefined);
+});
+
+test("recommendNextAgentStep opens property analysis when solved equilibrium has optimality evidence", () => {
+  const recommendation = recommendNextAgentStep({
+    id: "project-1",
+    createdAt: 1710000000000,
+    rawIdea: "platform commission",
+    refinedIdea: "platform commission and subsidy",
+    model: null,
+    wizardCompleted: true,
+    sections: [],
+    references: [],
+    hotellingModel: createModel(),
+    equilibriumResult: {
+      ...createEquilibrium(),
+      conditions: [
+        ...createEquilibrium().conditions,
+        "Second-order condition: Hessian is negative definite.",
+      ],
+      derivation:
+        "FOC gives the candidate, and the Hessian is negative definite at the candidate.",
+    },
     researchSession: {
       phase: "analysis",
       directions: [],

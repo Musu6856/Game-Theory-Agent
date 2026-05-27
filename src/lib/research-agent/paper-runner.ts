@@ -24,6 +24,10 @@ import {
   type AgentRun,
 } from "./state.ts";
 import { appendAgentRunToProject } from "./trace.ts";
+import {
+  assessProjectEquilibriumEvidence,
+  type EquilibriumEvidenceAssessment,
+} from "./equilibrium-evidence.ts";
 
 export type PaperOutputAgentRequest = {
   rawIdea: string;
@@ -199,6 +203,7 @@ function draftPaperSections(project: ResearchProject): PaperSection[] {
   const direction = project.researchSession?.assetSummary.currentDirection;
   const model = project.hotellingModel;
   const equilibrium = project.equilibriumResult;
+  const equilibriumEvidence = assessProjectEquilibriumEvidence(project);
   const analyses = project.propertyAnalyses ?? [];
   const title = direction?.title || project.refinedIdea || project.rawIdea;
 
@@ -239,20 +244,10 @@ function draftPaperSections(project: ResearchProject): PaperSection[] {
     {
       id: "paper-equilibrium",
       title: "均衡分析",
-      content: equilibrium
-        ? [
-            equilibrium.concept,
-            equilibrium.closedForm
-              ? `闭式结果为：\n\n${equilibrium.closedForm}`
-              : "当前尚未得到闭式均衡表达式。",
-            equilibrium.conditions.length > 0
-              ? `存在条件或适用区间包括：${equilibrium.conditions.join("；")}。`
-              : "均衡存在条件仍需要补充。",
-            equilibrium.derivation ? `推导说明：${equilibrium.derivation}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n")
-        : "当前还没有可写入论文的均衡推导。",
+      content: createEquilibriumPaperSectionContent(
+        equilibrium,
+        equilibriumEvidence
+      ),
       status: "generated",
     },
     {
@@ -293,18 +288,100 @@ function draftPaperSections(project: ResearchProject): PaperSection[] {
   return sections;
 }
 
+function createEquilibriumPaperSectionContent(
+  equilibrium: ResearchProject["equilibriumResult"],
+  assessment: EquilibriumEvidenceAssessment
+) {
+  if (!equilibrium) {
+    return "当前还没有可写入论文的均衡推导。";
+  }
+
+  const representationLine = createEquilibriumRepresentationLine(
+    equilibrium,
+    assessment
+  );
+  const scratchpadLines = createEquilibriumScratchpadLines(equilibrium);
+  const lines = [
+    equilibrium.concept,
+    representationLine,
+    assessment.status === "review_required"
+      ? `最优性证据：${assessment.summary}`
+      : `最优性证据：${assessment.optimalitySummary}`,
+    equilibrium.conditions.length > 0
+      ? `存在条件或适用区间包括：${equilibrium.conditions.join("；")}。`
+      : "均衡存在条件仍需要补充。",
+    ...scratchpadLines,
+    equilibrium.derivation ? `推导说明：${equilibrium.derivation}` : "",
+  ];
+
+  return lines.filter(Boolean).join("\n\n");
+}
+
+function createEquilibriumRepresentationLine(
+  equilibrium: NonNullable<ResearchProject["equilibriumResult"]>,
+  assessment: EquilibriumEvidenceAssessment
+) {
+  if (
+    assessment.status === "formal" &&
+    assessment.representation === "closed_form" &&
+    equilibrium.closedForm.trim()
+  ) {
+    return `闭式结果为：\n\n${equilibrium.closedForm}`;
+  }
+
+  if (assessment.representation === "implicit_system") {
+    return "当前结果是隐式系统草稿，不能作为正式闭式均衡证明；论文中只能把它写作待求解的均衡条件或诊断推导。";
+  }
+
+  if (assessment.representation === "reaction_functions") {
+    return "当前结果是反应函数草稿，尚未形成正式闭式均衡证明；论文中不能把它当作最终均衡结论。";
+  }
+
+  if (assessment.status === "review_required") {
+    return equilibrium.closedForm.trim()
+      ? `候选闭式结果为：\n\n${equilibrium.closedForm}\n\n该结果仍需最优性复核，不能直接作为已证明均衡引用。`
+      : "当前候选结果仍需最优性复核，不能直接作为已证明均衡引用。";
+  }
+
+  return "当前均衡仍是推导草稿，不能作为正式闭式均衡证明。";
+}
+
+function createEquilibriumScratchpadLines(
+  equilibrium: NonNullable<ResearchProject["equilibriumResult"]>
+) {
+  const scratchpad = equilibrium.solverScratchpad;
+  if (!scratchpad) return [];
+
+  const lines: string[] = [];
+  if (scratchpad.implicitSystem?.length) {
+    lines.push(`隐式系统：${scratchpad.implicitSystem.join("；")}`);
+  }
+  if (scratchpad.reactionFunctions?.length) {
+    lines.push(`反应函数：${scratchpad.reactionFunctions.join("；")}`);
+  }
+  if (scratchpad.failedWithReason) {
+    lines.push(`失败原因：${scratchpad.failedWithReason}`);
+  }
+  if (scratchpad.needsModelClarification?.length) {
+    lines.push(`需要补充的模型条件：${scratchpad.needsModelClarification.join("；")}`);
+  }
+
+  return lines;
+}
+
 function reviewPaperSections(project: ResearchProject, sections: PaperSection[]) {
   const issues: string[] = [];
   const pendingPatchKinds = project.researchSession?.assetPatches
     ?.filter((patch) => patch.status === "proposed" && patch.kind !== "paper")
     .map((patch) => patch.kind) ?? [];
+  const equilibriumEvidence = assessProjectEquilibriumEvidence(project);
 
   if (!project.hotellingModel) {
     issues.push("缺少已应用的模型设定，论文草稿只能保留研究动机。");
   }
 
-  if (project.equilibriumResult?.status !== "solved") {
-    issues.push("缺少已求解的均衡结果，均衡章节不能作为正式结论。");
+  if (!equilibriumEvidence.canCiteAsFormalEquilibrium) {
+    issues.push(equilibriumEvidence.summary);
   }
 
   if ((project.propertyAnalyses?.length ?? 0) < 3) {
