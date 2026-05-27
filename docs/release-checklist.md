@@ -36,6 +36,7 @@ Run from `D:\Agent测试\PaperForge-Agent`:
 
 ```powershell
 npm run lint
+node --test src\lib\research-agent\equilibrium-benchmark-cases.test.mjs
 npm test
 $env:RUN_AGENT_TASK_DB_PROBE="1"; node --test src\lib\research-agent\task-store-db-probe.test.mjs
 npx tsc --noEmit
@@ -45,6 +46,7 @@ npm run build
 Expected:
 
 - `npm run lint` exits 0 with no warnings.
+- The equilibrium benchmark suite exits 0 and covers simple, non-symmetric, reaction-function, condition-insufficient, boundary, SOC-failure, Hessian-review, and mechanism-rich implicit cases.
 - `npm test` exits 0.
 - The DB lifecycle probe exits 0 and reports one passing task-store DB probe. It creates and deletes only its own `codex-agent-task-db-*` task rows.
 - `npx tsc --noEmit` exits 0.
@@ -74,6 +76,7 @@ Release readiness can also be checked from code via `buildReleaseReadinessReport
 - [ ] Failed math verification is not displayed as passed.
 - [ ] Math verification states are actionable: 需修正 explains that the user should return to model/equilibrium/properties and generate a reviewable fix; 条件不足 explains which assumptions to add; 人工复核 explains that the user should inspect skipped or unsupported checks before continuing.
 - [ ] Unsupported math verification is displayed as 人工复核 or 暂不支持, not as proof.
+- [ ] The equilibrium benchmark suite passes before any solver improvement is described as ready.
 - [ ] The math verification panel merges persisted `researchSession.mathVerificationChecks` from async/SymPy runs into the visible summary.
 - [ ] Refreshing during or after an Agent run does not lose saved project data.
 - [ ] Retrying an Agent run does not duplicate an already proposed patch.
@@ -100,7 +103,7 @@ Use this table immediately before inviting the research group. Every `Go` line m
 | Area | Go | No-Go |
 | --- | --- | --- |
 | Production config | Clerk live keys, production `DATABASE_URL`, at least one model provider, and no committed secrets are confirmed. | Any test Clerk key, missing database URL, missing model provider, or exposed secret is found. |
-| Automated checks | `npm run lint`, `npm test`, `npx tsc --noEmit`, and `npm run build` all pass in the release environment. | Any command fails, or a warning/error is ignored without a written reason. |
+| Automated checks | `npm run lint`, the equilibrium benchmark suite, `npm test`, `npx tsc --noEmit`, and `npm run build` all pass in the release environment. | Any command fails, a benchmark is skipped without a written reason, or a warning/error is ignored without a written reason. |
 | Core Agent loop | A fresh project can run direction discovery, adopt a direction, review model/equilibrium/property/paper patches, and export an audit report. | Any core asset is silently overwritten, the flow cannot reach a reviewable patch, or export fails. |
 | Controller guidance | The next-step banner opens the actionable asset tab for pending patches, stale assets, version-review impact, math failures, and completed drafts. | The banner sends users to a passive tab when the wording asks them to regenerate or review an actionable asset. |
 | Math safety | Passed, failed, condition-insufficient, unsupported, and manual-review math states are distinguishable in UI and audit export. | Unsupported math is shown as proven, failed math is shown as passed, or failed math does not block unsafe paper output. |

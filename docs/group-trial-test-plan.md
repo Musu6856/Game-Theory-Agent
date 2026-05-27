@@ -12,6 +12,7 @@
 ## 上线前必须完成
 
 - `npm run lint`
+- `node --test src\lib\research-agent\equilibrium-benchmark-cases.test.mjs`
 - `npm test`
 - `npx tsc --noEmit`
 - `npm run build`
@@ -25,6 +26,7 @@
 - 刷新页面后没有项目数据丢失。
 - 所有核心资产变更都以 reviewable patch 出现。
 - 用户能区分哪些数学声明已验证、哪些需要人工复核。
+- 均衡基准套件能通过，并且试用中发现的新均衡失败模式会补成新的 benchmark case。
 - 用户能说清“需修正”“条件不足”“人工复核”三种提示分别该怎么处理。
 - 每个试用项目都能导出审计报告。
 - 至少 70% 试用者能指出“下一步应该做什么”和“为什么停在这里”。

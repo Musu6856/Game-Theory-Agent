@@ -225,20 +225,30 @@ The main risk is therefore not just "cannot solve." It is "looks solved after si
 
 **Benchmark categories:**
 
-- [ ] Simple symmetric Hotelling case that should pass.
-- [ ] Non-symmetric Hotelling case that should not collapse to `1/2`.
-- [ ] Two-stage platform model with a reaction function.
-- [ ] Parameter-condition model where the system must identify insufficient conditions.
-- [ ] Boundary-solution model where the system must not report only an interior optimum.
-- [ ] FOC-only stationary point where the second derivative or Hessian shows the candidate is not a maximum.
-- [ ] Multi-decision platform problem requiring Hessian or concavity checks before promotion.
-- [ ] Mechanism-rich model where implicit system or manual review is acceptable, but silent simplification is not.
+- [x] Simple symmetric Hotelling case that should pass.
+- [x] Non-symmetric Hotelling case that should not collapse to `1/2`.
+- [x] Two-stage platform model with a reaction function.
+- [x] Parameter-condition model where the system must identify insufficient conditions.
+- [x] Boundary-solution model where the system must not report only an interior optimum.
+- [x] FOC-only stationary point where the second derivative or Hessian shows the candidate is not a maximum.
+- [x] Multi-decision platform problem requiring Hessian or concavity checks before promotion.
+- [x] Mechanism-rich model where implicit system or manual review is acceptable, but silent simplification is not.
 
 **Acceptance checks:**
 
-- [ ] Each benchmark has expected model coverage, expected optimality evidence, expected allowed status, and forbidden shortcuts.
-- [ ] Tests can detect a regression where default symmetric fallback appears in a non-default case.
-- [ ] Release checklist includes running benchmark checks before claiming solver improvement.
+- [x] Each benchmark has expected model coverage, expected optimality evidence, expected allowed status, and forbidden shortcuts.
+- [x] Tests can detect a regression where default symmetric fallback appears in a non-default case.
+- [x] Release checklist includes running benchmark checks before claiming solver improvement.
+
+**Stage 5 evidence, 2026-05-27:**
+
+- Added `src/lib/research-agent/equilibrium-benchmark-cases.ts` and tests covering the eight benchmark categories above.
+- Added `docs/equilibrium-benchmarks.md` with expected outcomes and forbidden shortcuts.
+- Updated release and group-trial checklists so the benchmark suite runs before solver improvements are described as ready.
+
+**Verification run, 2026-05-27:**
+
+- `node --test src\lib\research-agent\equilibrium-benchmark-cases.test.mjs`
 
 ### Stage 6: Solver v3 After Honesty Gates
 
