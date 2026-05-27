@@ -14,6 +14,10 @@ import {
   type SympyResidualChecker,
   type SympySolveChecker,
 } from "./sympy-equilibrium-review.ts";
+import {
+  createEquilibriumCoverageArtifact,
+  evaluateEquilibriumCoverage,
+} from "./equilibrium-coverage.ts";
 
 export type EquilibriumSolverKernelDecisionAction =
   | "accept_candidate"
@@ -93,6 +97,17 @@ export async function runEquilibriumSolverKernel({
     model: project.hotellingModel,
     equilibrium,
   });
+  const coverage = evaluateEquilibriumCoverage({
+    model: project.hotellingModel,
+    equilibrium,
+  });
+  const coverageArtifact = createEquilibriumCoverageArtifact({
+    coverage,
+    id: `${runId}-review-equilibrium-0-model_coverage_check`,
+    runId,
+    now,
+  });
+  await onArtifact?.(coverageArtifact);
   const sympyReview = await reviewEquilibriumWithSympy({
     model: project.hotellingModel,
     equilibrium,
@@ -111,12 +126,14 @@ export async function runEquilibriumSolverKernel({
 
   const issues = [
     ...candidateIssues,
+    ...coverage.issues,
     ...consistencyReview.issues,
     ...sympyReview.issues,
   ];
   const checks = [...consistencyReview.checks, ...sympyReview.checks];
   const decision = decideNextKernelAction({
     issues,
+    coverageArtifact,
     sympyReview,
   });
   const steps = [
@@ -124,6 +141,7 @@ export async function runEquilibriumSolverKernel({
       candidateIssues,
       consistencyIssues: consistencyReview.issues,
     }),
+    createArtifactStep(coverageArtifact),
     ...sympyReview.artifacts.map(createArtifactStep),
     createDecisionStep(decision),
   ];
@@ -132,7 +150,7 @@ export async function runEquilibriumSolverKernel({
     ok: issues.length === 0 && decision.action === "accept_candidate",
     issues,
     checks,
-    artifacts: sympyReview.artifacts,
+    artifacts: [coverageArtifact, ...sympyReview.artifacts],
     steps,
     decision,
   };
@@ -166,9 +184,11 @@ function validateCandidateEquilibrium(equilibrium: EquilibriumResult) {
 
 function decideNextKernelAction({
   issues,
+  coverageArtifact,
   sympyReview,
 }: {
   issues: string[];
+  coverageArtifact: ResearchMathArtifact;
   sympyReview: SympyEquilibriumReviewResult;
 }): EquilibriumSolverKernelDecision {
   const modelRepairArtifacts = sympyReview.artifacts.filter(isModelRepairArtifact);
@@ -189,6 +209,16 @@ function decideNextKernelAction({
     isEquilibriumCandidateRepairArtifact
   );
   if (candidateFailureArtifacts.length > 0 || issues.length > 0) {
+    if (isBlockingCoverageArtifact(coverageArtifact)) {
+      return {
+        action: "review_manually",
+        title: "Review model coverage before promotion",
+        reason:
+          "The equilibrium derivation omits confirmed high-value model mechanisms or appears to simplify a mechanism-rich model into the default symmetric core. Keep it as a draft until the omitted mechanisms are handled or explicitly scoped.",
+        artifactIds: [coverageArtifact.id],
+      };
+    }
+
     return {
       action: "repair_equilibrium_candidate",
       title: "修复均衡候选",
@@ -223,6 +253,32 @@ function decideNextKernelAction({
     reason: "候选均衡通过当前受限求解内核的结构检查、FOC 残差和独立求解对照。",
     artifactIds: [],
   };
+}
+
+function isBlockingCoverageArtifact(artifact: ResearchMathArtifact) {
+  if (artifact.status !== "failed") return false;
+
+  const output =
+    artifact.output && typeof artifact.output === "object"
+      ? (artifact.output as Record<string, unknown>)
+      : {};
+  if (output.suspiciousSimplification === true) return true;
+
+  const omitted = Array.isArray(output.omittedHighValueMechanisms)
+    ? output.omittedHighValueMechanisms
+    : [];
+  return omitted.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const mechanism = (item as { mechanism?: unknown }).mechanism;
+    return (
+      mechanism === "quality" ||
+      mechanism === "recommendation" ||
+      mechanism === "verification" ||
+      mechanism === "multihoming" ||
+      mechanism === "asymmetry" ||
+      mechanism === "boundary"
+    );
+  });
 }
 
 function createCandidateValidationStep({

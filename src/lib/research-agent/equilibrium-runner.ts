@@ -321,6 +321,67 @@ export async function runEquilibriumSolvingAgent(
     };
   }
 
+  const initialCoverageArtifact =
+    findLatestModelCoverageArtifact(accumulatedReviewArtifacts);
+  if (
+    initialCoverageArtifact &&
+    isBlockingCoverageArtifact(initialCoverageArtifact)
+  ) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-equilibrium",
+        type: "tool_result",
+        message:
+          "Equilibrium coverage check found omitted model mechanisms, so the solved-looking candidate stays as a draft instead of becoming a formal equilibrium patch.",
+        metadata: {
+          status: candidateEquilibrium.status,
+          promotionBlocked: true,
+          reason: "model_coverage_failed",
+          omittedMechanisms: initialCoverageArtifact.output,
+          issues: initialCoverageArtifact.issues ?? [],
+        },
+      },
+      now
+    );
+    await recordStepStatus("review-equilibrium", "completed");
+    agentRun = {
+      ...agentRun,
+      status: "paused",
+      currentStepId: undefined,
+      pauseReason:
+        "The candidate omits confirmed high-value model mechanisms or appears to simplify the model. Review the coverage artifact and revise the derivation before creating a formal equilibrium patch.",
+      requiresApproval: false,
+      completedAt: now,
+    };
+
+    return {
+      project: attachEquilibriumDraftForReview({
+        originalProject: request.project,
+        solveResult,
+        equilibrium: candidateEquilibrium,
+        agentRun,
+        now,
+        draftReason:
+          "The derivation did not cover all confirmed high-value model mechanisms, so it remains a draft/manual-review result rather than a formal equilibrium asset.",
+        reviewChecks: review.checks,
+        mathArtifacts: [
+          createEquilibriumCandidateArtifact({
+            equilibrium: candidateEquilibrium,
+            runId: agentRun.id,
+            patchId: `draft-equilibrium-${now}`,
+            now,
+          }),
+          ...accumulatedReviewArtifacts,
+        ],
+      }),
+      usedFallback: solveResult.usedFallback,
+      assistantMessage:
+        "This candidate looks solved, but the model-coverage check found omitted confirmed mechanisms. I kept it as a draft and did not create a formal equilibrium patch.",
+      agentRun,
+    };
+  }
+
   if (review.decision.action === "repair_equilibrium_candidate") {
     agentRun = appendTraceEvent(
       agentRun,
@@ -625,6 +686,65 @@ export async function runEquilibriumSolvingAgent(
     };
   }
 
+  const coverageArtifact = findLatestModelCoverageArtifact(
+    accumulatedReviewArtifacts
+  );
+  if (coverageArtifact && isBlockingCoverageArtifact(coverageArtifact)) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-equilibrium",
+        type: "tool_result",
+        message:
+          "Equilibrium coverage check found omitted model mechanisms, so the solved-looking candidate stays as a draft instead of becoming a formal equilibrium patch.",
+        metadata: {
+          status: candidateEquilibrium.status,
+          promotionBlocked: true,
+          reason: "model_coverage_failed",
+          omittedMechanisms: coverageArtifact.output,
+          issues: coverageArtifact.issues ?? [],
+        },
+      },
+      now
+    );
+    await recordStepStatus("review-equilibrium", "completed");
+    agentRun = {
+      ...agentRun,
+      status: "paused",
+      currentStepId: undefined,
+      pauseReason:
+        "The candidate omits confirmed high-value model mechanisms or appears to simplify the model. Review the coverage artifact and revise the derivation before creating a formal equilibrium patch.",
+      requiresApproval: false,
+      completedAt: now,
+    };
+
+    return {
+      project: attachEquilibriumDraftForReview({
+        originalProject: request.project,
+        solveResult,
+        equilibrium: candidateEquilibrium,
+        agentRun,
+        now,
+        draftReason:
+          "The derivation did not cover all confirmed high-value model mechanisms, so it remains a draft/manual-review result rather than a formal equilibrium asset.",
+        reviewChecks: review.checks,
+        mathArtifacts: [
+          createEquilibriumCandidateArtifact({
+            equilibrium: candidateEquilibrium,
+            runId: agentRun.id,
+            patchId: `draft-equilibrium-${now}`,
+            now,
+          }),
+          ...accumulatedReviewArtifacts,
+        ],
+      }),
+      usedFallback: solveResult.usedFallback,
+      assistantMessage:
+        "This candidate looks solved, but the model-coverage check found omitted confirmed mechanisms. I kept it as a draft and did not create a formal equilibrium patch.",
+      agentRun,
+    };
+  }
+
   if (!hasPromotionOptimalityEvidence(candidateEquilibrium)) {
     agentRun = appendTraceEvent(
       agentRun,
@@ -871,6 +991,38 @@ function mergeMathArtifacts(
   });
 
   return [...byId.values()];
+}
+
+function findLatestModelCoverageArtifact(artifacts: ResearchMathArtifact[]) {
+  return artifacts
+    .filter((artifact) => artifact.kind === "model_coverage_check")
+    .at(-1);
+}
+
+function isBlockingCoverageArtifact(artifact?: ResearchMathArtifact) {
+  if (!artifact || artifact.status !== "failed") return false;
+
+  const output =
+    artifact.output && typeof artifact.output === "object"
+      ? (artifact.output as Record<string, unknown>)
+      : {};
+  if (output.suspiciousSimplification === true) return true;
+
+  const omitted = Array.isArray(output.omittedHighValueMechanisms)
+    ? output.omittedHighValueMechanisms
+    : [];
+  return omitted.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const mechanism = (item as { mechanism?: unknown }).mechanism;
+    return (
+      mechanism === "quality" ||
+      mechanism === "recommendation" ||
+      mechanism === "verification" ||
+      mechanism === "multihoming" ||
+      mechanism === "asymmetry" ||
+      mechanism === "boundary"
+    );
+  });
 }
 
 function attachArtifactRunAndPatch({

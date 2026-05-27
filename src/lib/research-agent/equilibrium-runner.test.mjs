@@ -87,6 +87,101 @@ function createExplicitProfitModel() {
   };
 }
 
+function createQualityRecommendationModel() {
+  return {
+    symbols: [
+      {
+        id: "tau-a",
+        symbol: "\\tau_A",
+        baseSymbol: "tau",
+        subscript: "A",
+        codeName: "tau_A",
+        name: "Platform A commission",
+        meaning: "Commission chosen by platform A",
+        role: "decision",
+        side: "platform",
+        assumption: "tau_A >= 0",
+        recommended: true,
+      },
+      {
+        id: "s-a",
+        symbol: "s_A",
+        baseSymbol: "s",
+        subscript: "A",
+        codeName: "s_A",
+        name: "Platform A subsidy",
+        meaning: "Subsidy chosen by platform A",
+        role: "decision",
+        side: "platform",
+        assumption: "s_A >= 0",
+        recommended: true,
+      },
+      {
+        id: "q-a",
+        symbol: "q_A",
+        baseSymbol: "q",
+        subscript: "A",
+        codeName: "q_A",
+        name: "Quality investment",
+        meaning: "Quality investment chosen by platform A",
+        role: "decision",
+        side: "platform",
+        assumption: "q_A >= 0",
+        recommended: true,
+      },
+      {
+        id: "r-a",
+        symbol: "r_A",
+        baseSymbol: "r",
+        subscript: "A",
+        codeName: "r_A",
+        name: "Recommendation strength",
+        meaning: "Recommendation strength chosen by platform A",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= r_A <= 1",
+        recommended: true,
+      },
+    ],
+    sides: {
+      consumerSideName: "buyers",
+      merchantSideName: "sellers",
+    },
+    platforms: ["A", "B"],
+    timing: [
+      {
+        id: "platform-choice",
+        order: 1,
+        name: "Platforms choose commission, subsidy, quality, and recommendation",
+        decisions: ["tau_A", "s_A", "q_A", "r_A"],
+      },
+    ],
+    utilityFunctions: [
+      {
+        id: "buyer-a",
+        side: "consumer",
+        platform: "A",
+        expression: "v + theta*q_A + r_A - p_A - t*x",
+        notes: "Quality and recommendation shift buyer utility.",
+      },
+    ],
+    demandDerivation:
+      "Demand depends on commission tau_A, subsidy s_A, quality q_A, and recommendation r_A.",
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression:
+          "Pi_A = tau_A*n_A^S - s_A*n_A^B - c_q*q_A^2/2 - c_r*r_A^2/2",
+        notes: "Quality investment and recommendation strength are costly strategic choices.",
+      },
+    ],
+    assumptions: ["theta > 0", "c_q > 0", "c_r > 0"],
+    modelSetupDraft:
+      "A mechanism-rich platform model with quality investment and recommendation strength.",
+  };
+}
+
 function withOptimalityEvidence(equilibrium) {
   return {
     ...equilibrium,
@@ -287,6 +382,98 @@ test("equilibrium solving agent keeps candidate equilibrium pending until applie
   assert.equal(
     applied.researchSession?.assetSummary.pendingDecision?.kind,
     "analyze_properties"
+  );
+});
+
+test("equilibrium solving agent blocks simplified equilibria that omit rich model mechanisms", async () => {
+  const baseProject = createConfirmedProject();
+  const project = {
+    ...baseProject,
+    hotellingModel: createQualityRecommendationModel(),
+  };
+  const simplifiedEquilibrium = withOptimalityEvidence({
+    status: "solved",
+    concept: "Simplified tau and subsidy Hotelling equilibrium",
+    solvingSteps: [
+      "Write FOCs for tau_A and s_A",
+      "Solve the symmetric interior system",
+    ],
+    focs: [
+      "partial Pi_A / partial tau_A = 0",
+      "partial Pi_A / partial s_A = 0",
+    ],
+    conditions: ["t > alpha", "Second-order condition: Hessian is negative definite."],
+    closedForm:
+      "n_A^{B*}=1/2; n_A^{S*}=1/2; tau_A^*=(t-alpha)/2; s_A^*=alpha/2",
+    derivation:
+      "The symmetric Hotelling core gives a one-half allocation after solving tau and subsidy.",
+    code: "sp.solve([foc_tau_A, foc_s_A], [tau_A, s_A])",
+    warnings: [],
+  });
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-coverage-block-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => ({
+        project: {
+          ...project,
+          equilibriumResult: simplifiedEquilibrium,
+          researchSession: {
+            ...project.researchSession,
+            phase: "equilibrium",
+            assetSummary: {
+              ...project.researchSession?.assetSummary,
+              confirmedAssumptions:
+                project.researchSession?.assetSummary.confirmedAssumptions ?? [],
+              utilityFunctions:
+                project.researchSession?.assetSummary.utilityFunctions ?? [],
+              equilibriumStatus: "solved",
+              nextActions: ["Review symbolic equilibrium", "Analyze properties"],
+              pendingDecision: {
+                kind: "analyze_properties",
+                prompt: "A symbolic equilibrium is ready.",
+              },
+            },
+            messages: project.researchSession?.messages ?? [],
+          },
+        },
+        usedFallback: false,
+        assistantMessage: "A solved equilibrium candidate is ready.",
+      }),
+    }
+  );
+
+  const patches = result.project.researchSession?.assetPatches ?? [];
+  const artifacts = result.project.researchSession?.mathArtifacts ?? [];
+  const coverageArtifact = artifacts.find(
+    (artifact) => artifact.kind === "model_coverage_check"
+  );
+
+  assert.equal(result.agentRun.status, "paused");
+  assert.equal(result.agentRun.requiresApproval, false);
+  assert.equal(patches.some((patch) => patch.kind === "equilibrium"), false);
+  assert.equal(result.project.equilibriumResult?.status, "solved");
+  assert.equal(coverageArtifact?.status, "failed");
+  assert.ok(
+    coverageArtifact?.issues?.some(
+      (issue) => issue.includes("q_A") && issue.includes("r_A")
+    )
+  );
+  assert.ok(
+    result.agentRun.trace.some(
+      (event) =>
+        event.stepId === "review-equilibrium" &&
+        event.metadata?.reason === "model_coverage_failed"
+    )
+  );
+  assert.equal(
+    result.project.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
   );
 });
 
@@ -581,10 +768,10 @@ test("equilibrium solving agent streams math artifacts to the task sink", async 
   assert.deepEqual(
     streamedArtifacts.map((artifact) => artifact.kind).slice(0, 4),
     [
+      "model_coverage_check",
       "compiled_game_system",
       "closed_form_substitutions",
       "foc_residuals",
-      "generated_foc_system",
     ]
   );
   assert.equal(

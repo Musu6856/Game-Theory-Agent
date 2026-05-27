@@ -357,6 +357,7 @@ export type ResearchMathArtifactKind =
   | "closed_form_substitutions"
   | "foc_residuals"
   | "generated_foc_system"
+  | "model_coverage_check"
   | "model_profit_foc"
   | "solver_attempt"
   | "sympy_residual_check"

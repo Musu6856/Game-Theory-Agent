@@ -12,6 +12,7 @@ const EQUILIBRIUM_ARTIFACT_KINDS = new Set<ResearchMathArtifactKind>([
   "closed_form_substitutions",
   "foc_residuals",
   "generated_foc_system",
+  "model_coverage_check",
   "model_profit_foc",
   "solver_attempt",
   "sympy_residual_check",
@@ -86,6 +87,8 @@ export function getMathArtifactKindLabel(kind: ResearchMathArtifactKind) {
       return "候选 FOC";
     case "generated_foc_system":
       return "生成 FOC";
+    case "model_coverage_check":
+      return "模型覆盖";
     case "model_profit_foc":
       return "利润 FOC";
     case "solver_attempt":

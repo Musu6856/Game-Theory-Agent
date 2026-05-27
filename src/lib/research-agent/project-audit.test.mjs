@@ -150,6 +150,38 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
             "SymPy 模型利润函数生成 FOC 通过：得到 1 条可执行残差：alpha_B - 2*tau_A。",
         },
       ],
+      mathArtifacts: [
+        {
+          id: "coverage-1",
+          stepId: "review-equilibrium",
+          kind: "model_coverage_check",
+          title: "Model coverage check",
+          status: "failed",
+          source: "model",
+          runId: "run-coverage",
+          createdAt: 1710000000450,
+          output: {
+            usedSymbols: ["tau_A", "s_A"],
+            omittedModelSymbols: ["q_A", "r_A"],
+            omittedHighValueMechanisms: [
+              {
+                symbol: "q_A",
+                label: "quality investment",
+                mechanism: "quality",
+              },
+              {
+                symbol: "r_A",
+                label: "recommendation strength",
+                mechanism: "recommendation",
+              },
+            ],
+            suspiciousSimplification: true,
+          },
+          issues: [
+            "The derivation omits high-value model mechanisms: q_A (quality investment), r_A (recommendation strength).",
+          ],
+        },
+      ],
     },
     hotellingModel: {
       symbols: [],
@@ -197,6 +229,11 @@ test("buildProjectAuditMarkdown exports a project-level audit report", () => {
   assert.match(markdown, /## 数学验证摘要/);
   assert.match(markdown, /SymPy 模型利润函数生成 FOC/);
   assert.match(markdown, /alpha_B - 2\*tau_A/);
+  assert.match(markdown, /## 模型覆盖检查/);
+  assert.match(markdown, /遗漏高价值机制/);
+  assert.match(markdown, /q_A（quality investment）/);
+  assert.match(markdown, /r_A（recommendation strength）/);
+  assert.match(markdown, /疑似默认简化：是/);
   assert.match(markdown, /## 章节复核摘要/);
   assert.match(markdown, /状态：可继续|状态：需复核/);
   assert.match(markdown, /## 资产审核历史/);

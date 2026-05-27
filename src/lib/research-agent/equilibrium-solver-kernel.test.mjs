@@ -179,6 +179,7 @@ test("equilibrium solver kernel records an ordered tool loop for a verified cand
   assert.deepEqual(
     result.artifacts.map((artifact) => artifact.kind),
     [
+      "model_coverage_check",
       "compiled_game_system",
       "closed_form_substitutions",
       "foc_residuals",
@@ -192,6 +193,7 @@ test("equilibrium solver kernel records an ordered tool loop for a verified cand
     result.steps.map((step) => step.kind),
     [
       "candidate_validation",
+      "model_coverage_check",
       "compiled_game_system",
       "closed_form_substitutions",
       "foc_residuals",

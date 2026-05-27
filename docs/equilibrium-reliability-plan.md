@@ -142,18 +142,30 @@ The main risk is therefore not just "cannot solve." It is "looks solved after si
 
 **Tasks:**
 
-- [ ] Compute model coverage: decision variables, parameters, demand variables, mechanism terms, utility functions, and profit functions.
-- [ ] Compute derivation coverage: which model variables appear in FOCs, residuals, closed-form expressions, and derivation text.
-- [ ] Flag omitted high-value mechanism terms, especially quality, subsidy, commission, recommendation strength, multihoming, verification effort, asymmetry, and boundary constraints.
-- [ ] Flag suspicious simplification when a mechanism-rich model yields only default `tau/s/1/2` style results.
-- [ ] Surface coverage findings in the draft, right-side math panel, and audit export.
-- [ ] Add tests where a model with quality investment `q_i` or recommendation strength `r_i` produces a simplified equilibrium; expected result is a warning/blocker, not a clean formal patch.
+- [x] Compute model coverage: decision variables, parameters, demand variables, mechanism terms, utility functions, and profit functions.
+- [x] Compute derivation coverage: which model variables appear in FOCs, residuals, closed-form expressions, and derivation text.
+- [x] Flag omitted high-value mechanism terms, especially quality, subsidy, commission, recommendation strength, multihoming, verification effort, asymmetry, and boundary constraints.
+- [x] Flag suspicious simplification when a mechanism-rich model yields only default `tau/s/1/2` style results.
+- [x] Surface coverage findings in the draft, right-side math panel, and audit export.
+- [x] Add tests where a model with quality investment `q_i` or recommendation strength `r_i` produces a simplified equilibrium; expected result is a warning/blocker, not a clean formal patch.
+
+**Stage 3 evidence, 2026-05-27:**
+
+- Added `src/lib/research-agent/equilibrium-coverage.ts` and tests for model-vs-derivation coverage, omitted high-value mechanisms, and suspicious default Hotelling simplification.
+- Added the `model_coverage_check` math artifact kind. The solver kernel now records coverage evidence before SymPy artifacts, and the runner blocks promotion when the candidate omits strategic high-value mechanisms such as quality investment `q_A` or recommendation strength `r_A`.
+- Kept the gate conservative: ordinary commission/subsidy or closed-form mistakes still flow through the existing bounded repair path; mechanism-rich simplification stays draft/manual-review and does not create a formal equilibrium patch.
+- Right-side technical validation records now display the coverage artifact, and project audit export includes a dedicated model coverage section with used symbols, omitted symbols, omitted high-value mechanisms, and suspicious-simplification status.
 
 **Acceptance checks:**
 
-- [ ] The system lists variables and mechanisms used by the derivation.
-- [ ] The system lists variables and mechanisms not used by the derivation.
-- [ ] A simplified equilibrium cannot be promoted without an explicit warning and user-visible scope limitation.
+- [x] The system lists variables and mechanisms used by the derivation.
+- [x] The system lists variables and mechanisms not used by the derivation.
+- [x] A simplified equilibrium cannot be promoted without an explicit warning and user-visible scope limitation.
+
+**Verification run, 2026-05-27:**
+
+- `node --test src\lib\research-agent\equilibrium-coverage.test.mjs src\lib\research-agent\equilibrium-solver-kernel.test.mjs src\lib\research-agent\equilibrium-runner.test.mjs`
+- `node --test src\lib\research-agent\equilibrium-display.test.mjs src\lib\research-agent\project-audit.test.mjs`
 
 ### Stage 4: Second-Order And Boundary Verification
 

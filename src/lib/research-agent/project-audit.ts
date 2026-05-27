@@ -45,6 +45,7 @@ export function buildProjectAuditMarkdown(project: ResearchProject) {
   appendAgentRuns(lines, runs);
   appendVersionReviewSummary(lines, versionHistory);
   appendMathVerificationSummary(lines, project);
+  appendModelCoverageSummary(lines, session);
   appendPaperSectionReview(lines, project);
   appendAssetVersionHistory(lines, versionHistory);
 
@@ -305,6 +306,56 @@ function appendMathVerificationSummary(lines: string[], project: ResearchProject
   }
 }
 
+function appendModelCoverageSummary(lines: string[], session?: ResearchSession) {
+  const artifacts =
+    session?.mathArtifacts?.filter(
+      (artifact) => artifact.kind === "model_coverage_check"
+    ) ?? [];
+
+  lines.push("", "## 模型覆盖检查");
+  if (artifacts.length === 0) {
+    lines.push("", "暂无模型覆盖检查记录。");
+    return;
+  }
+
+  artifacts.slice(-5).forEach((artifact, index) => {
+    const output = getArtifactObject(artifact.output);
+    const omittedMechanisms = parseOmittedMechanisms(
+      output.omittedHighValueMechanisms
+    );
+    const omittedSymbols = parseStringList(output.omittedModelSymbols);
+    const usedSymbols = parseStringList(output.usedSymbols);
+
+    lines.push(
+      "",
+      `### ${index + 1}. ${artifact.title}`,
+      "",
+      `- 状态：${formatMathCheckStatus(artifact.status)}`,
+      `- AgentRun：${artifact.runId ?? "未记录"}`,
+      `- 疑似默认简化：${output.suspiciousSimplification === true ? "是" : "否"}`
+    );
+
+    if (usedSymbols.length > 0) {
+      lines.push(`- 推导使用符号：${usedSymbols.join(", ")}`);
+    }
+    if (omittedSymbols.length > 0) {
+      lines.push(`- 未覆盖模型符号：${omittedSymbols.join(", ")}`);
+    }
+    if (omittedMechanisms.length > 0) {
+      lines.push("", "#### 遗漏高价值机制");
+      omittedMechanisms.forEach((item) => {
+        lines.push(
+          `- ${item.symbol}${item.label ? `（${item.label}）` : ""}${item.mechanism ? ` / ${item.mechanism}` : ""}`
+        );
+      });
+    }
+    if (artifact.issues?.length) {
+      lines.push("", "#### 覆盖问题");
+      artifact.issues.forEach((issue) => lines.push(`- ${issue}`));
+    }
+  });
+}
+
 function appendPaperSectionReview(lines: string[], project: ResearchProject) {
   const review = buildPaperSectionReview({ project });
 
@@ -332,6 +383,33 @@ function appendPaperSectionReview(lines: string[], project: ResearchProject) {
       `- 建议动作：${task.nextAction}`
     );
   });
+}
+
+function getArtifactObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function parseStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function parseOmittedMechanisms(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object")
+    )
+    .map((item) => ({
+      symbol: typeof item.symbol === "string" ? item.symbol : "",
+      label: typeof item.label === "string" ? item.label : "",
+      mechanism: typeof item.mechanism === "string" ? item.mechanism : "",
+    }))
+    .filter((item) => item.symbol);
 }
 
 function appendTraceEvents(lines: string[], events: AgentTraceEvent[]) {
