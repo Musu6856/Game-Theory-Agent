@@ -26,7 +26,8 @@ function createSolvedProject() {
   return generateSymbolicEquilibrium(
     confirmResearchModel(
       adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-    )
+    ),
+    { acceptDefaultFallbackScope: true }
   );
 }
 

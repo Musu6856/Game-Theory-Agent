@@ -79,6 +79,7 @@ import {
   getResearchAssetsTabForPhase,
   getResearchFlowState,
   getResearchPrimaryAction,
+  isDraftEquilibriumStatus,
   type ResearchAssetsTab,
   type ResearchPrimaryAction,
 } from "@/lib/research-flow";
@@ -197,7 +198,7 @@ function ResearchAssetsPanelContent({
     propertyAnalyses: project?.propertyAnalyses,
     researchSession: project?.researchSession,
   });
-  const isSymbolicFailure = equilibrium?.status === "symbolic_failure";
+  const isSymbolicFailure = isDraftEquilibriumStatus(equilibrium?.status);
   const hasThinAnalysis = analyses.length > 0 && analyses.length < 3;
   const canSolveNow =
     Boolean(model && onSolveEquilibrium) &&
@@ -1517,8 +1518,9 @@ function EquilibriumTab({
   onSelectAssetTab?: (tab: ResearchAssetsTab) => void;
 }) {
   const displayedEquilibrium = pendingEquilibriumCandidate ?? equilibrium;
-  const displayedIsSymbolicFailure =
-    displayedEquilibrium?.status === "symbolic_failure";
+  const displayedIsSymbolicFailure = isDraftEquilibriumStatus(
+    displayedEquilibrium?.status
+  );
   const isPendingCandidate = Boolean(pendingEquilibriumCandidate);
   const primaryAction = getResearchPrimaryAction(
     {

@@ -139,7 +139,7 @@ test("chat view removes pending assistant once confirmed assistant reply arrives
   );
 });
 
-test("chat view hides stale provider drafts once an agent review message exists", () => {
+test("chat view keeps equilibrium provider drafts visible when agent review exists", () => {
   const duplicatedDraft =
     "模型设定与符号均衡推导 ".repeat(20);
   const messages = [
@@ -198,10 +198,17 @@ test("chat view hides stale provider drafts once an agent review message exists"
     [
       "msg-model-agent-review-1",
       "msg-start-equilibrium-provider-1",
+      "msg-equilibrium-provider-1",
       "msg-equilibrium-agent-review-1",
       "msg-start-analysis-provider-1",
       "msg-properties-agent-review-1",
     ]
+  );
+  assert.equal(
+    createResearchChatViewMessages(messages, null).some((message) =>
+      message.content.includes("FULL_EQUILIBRIUM_DRAFT")
+    ),
+    true
   );
   assert.equal(
     createResearchChatViewMessages(messages, null).some((message) =>

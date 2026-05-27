@@ -170,6 +170,9 @@ export function parseEquilibriumResult(value: unknown): EquilibriumResult | null
   const derivation = parseText(value.derivation);
   const code = parseText(value.code);
   const warnings = parseStringArray(value.warnings) ?? [];
+  const solverScratchpad = parseEquilibriumSolverScratchpad(
+    value.solverScratchpad
+  );
 
   if (
     !status ||
@@ -194,6 +197,7 @@ export function parseEquilibriumResult(value: unknown): EquilibriumResult | null
     derivation,
     code,
     warnings,
+    ...(solverScratchpad ? { solverScratchpad } : {}),
   };
 
   return isSymbolicEquilibriumResult(result) ? result : null;
@@ -258,11 +262,52 @@ function parseEquilibriumStatus(
     value === "idle" ||
     value === "solved" ||
     value === "needs_revision" ||
+    value === "derivation_draft" ||
+    value === "implicit_system" ||
+    value === "reaction_functions" ||
+    value === "failed_with_reason" ||
+    value === "needs_model_clarification" ||
     value === "symbolic_failure"
   ) {
     return value;
   }
   return null;
+}
+
+function parseEquilibriumSolverScratchpad(
+  value: unknown
+): EquilibriumResult["solverScratchpad"] | null {
+  if (!isRecord(value)) return null;
+
+  const status = parseEquilibriumDraftStatus(value.status);
+  const implicitSystem = parseStringArray(value.implicitSystem);
+  const reactionFunctions = parseStringArray(value.reactionFunctions);
+  const failedWithReason = parseText(value.failedWithReason);
+  const needsModelClarification = parseStringArray(value.needsModelClarification);
+  const attemptedSteps = parseStringArray(value.attemptedSteps);
+  const scratchpad = {
+    ...(status ? { status } : {}),
+    ...(implicitSystem ? { implicitSystem } : {}),
+    ...(reactionFunctions ? { reactionFunctions } : {}),
+    ...(failedWithReason ? { failedWithReason } : {}),
+    ...(needsModelClarification ? { needsModelClarification } : {}),
+    ...(attemptedSteps ? { attemptedSteps } : {}),
+  };
+
+  return Object.keys(scratchpad).length > 0 ? scratchpad : null;
+}
+
+function parseEquilibriumDraftStatus(
+  value: unknown
+): NonNullable<EquilibriumResult["solverScratchpad"]>["status"] | null {
+  return value === "derivation_draft" ||
+    value === "implicit_system" ||
+    value === "reaction_functions" ||
+    value === "failed_with_reason" ||
+    value === "needs_model_clarification" ||
+    value === "symbolic_failure"
+    ? value
+    : null;
 }
 
 function parsePropertyOperation(

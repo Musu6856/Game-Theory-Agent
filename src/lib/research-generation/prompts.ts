@@ -14,7 +14,7 @@ export function createEquilibriumPrompt(project: ResearchProject): LlmMessage[] 
     {
       role: "developer",
       content:
-        "You output strict JSON only. Top-level keys must be assistantMessage and equilibriumResult. assistantMessage must be the exact natural-language reply the user should see in chat, in Chinese Markdown text, without markdown fences or code fences. Use headings, bullet lists, bold text, and inline LaTeX when that improves readability. Wrap every formula or symbol token such as $n_A^B$, $\\alpha_B$, $\\tau_A^*$ in Markdown math delimiters. equilibriumResult must include status,concept,solvingSteps,focs,conditions,closedForm,derivation,code,warnings. Keep closedForm compact: use a pure formula, reaction system, or concise symbolic-failure statement; do not mix long prose into closedForm. Put explanations in derivation and warnings. The result must be symbolic: use FOC equations, reaction functions, closed-form expressions or exact symbolic-failure explanation plus reusable SymPy code. Do not use numeric substitution, simulation, calibration, Monte Carlo, empirical regression, or parameter assignment as equilibrium. Reuse the supplied symbol registry exactly; if a symbol is missing, define it explicitly and keep notation consistent with the current model.",
+        "You output strict JSON only. Top-level keys must be assistantMessage and equilibriumResult. assistantMessage must be the exact natural-language reply the user should see in chat, in Chinese Markdown text, without markdown fences or code fences. Use headings, bullet lists, bold text, and inline LaTeX when that improves readability. Wrap every formula or symbol token such as $n_A^B$, $\\alpha_B$, $\\tau_A^*$ in Markdown math delimiters. equilibriumResult must include status,concept,solvingSteps,focs,conditions,closedForm,derivation,code,warnings, and may include solverScratchpad. Valid non-solved draft statuses include derivation_draft, implicit_system, reaction_functions, failed_with_reason, needs_model_clarification, and symbolic_failure. Use status=solved only when you have a closed-form or reusable reaction-function equilibrium plus promotion evidence: second-order condition, Hessian negative definiteness, concavity argument, KKT analysis, or boundary analysis as appropriate. FOC alone is not enough for solved. Keep closedForm compact: use a pure formula, reaction system, implicit system, or concise failure statement; do not mix long prose into closedForm. Put explanations in derivation and warnings. The result must be symbolic: use FOC equations, reaction functions, closed-form expressions, implicit systems, or exact symbolic-failure explanation plus reusable SymPy code. Do not use numeric substitution, simulation, calibration, Monte Carlo, empirical regression, or parameter assignment as equilibrium. Reuse the supplied symbol registry exactly; if a symbol is missing, define it explicitly and keep notation consistent with the current model.",
     },
     {
       role: "user",
@@ -29,15 +29,24 @@ export function createEquilibriumPrompt(project: ResearchProject): LlmMessage[] 
           requiredShape: {
             assistantMessage: "中文 Markdown 回复",
             equilibriumResult: {
-              status: "solved 或 symbolic_failure",
+              status:
+                "solved 或 derivation_draft/implicit_system/reaction_functions/failed_with_reason/needs_model_clarification/symbolic_failure",
               concept: "均衡概念",
-              solvingSteps: ["符号求解步骤"],
+              solvingSteps: ["符号求解步骤，包括 FOC、二阶/Hessian/凹性/KKT/边界检查"],
               focs: ["\\frac{\\partial \\Pi_i}{\\partial \\tau_i}=0"],
-              conditions: ["参数约束"],
-              closedForm: "纯公式闭式解、反应函数系统或简短符号失败说明",
-              derivation: "符号推导说明",
+              conditions: ["参数约束", "二阶条件、Hessian、凹性、KKT 或边界条件"],
+              closedForm: "纯公式闭式解、反应函数系统、隐式系统或简短失败说明",
+              derivation: "完整符号推导草稿；若未 solved，说明卡在哪里",
               code: "可运行 SymPy 代码",
               warnings: ["仅保留符号解，不用数值模拟"],
+              solverScratchpad: {
+                status: "implicit_system",
+                implicitSystem: ["F(z,theta)=0"],
+                reactionFunctions: ["R_i(strategy_-i,theta)"],
+                failedWithReason: "无法闭式求解的原因",
+                needsModelClarification: ["需要补充的模型输入"],
+                attemptedSteps: ["尝试过的求解步骤"],
+              },
             },
           },
         }),

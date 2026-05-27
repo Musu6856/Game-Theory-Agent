@@ -20,6 +20,11 @@ const STATUS_OPTIONS: Array<{
   { value: "idle", label: "待求解" },
   { value: "solved", label: "已求解" },
   { value: "needs_revision", label: "需修正" },
+  { value: "derivation_draft", label: "推导草稿" },
+  { value: "implicit_system", label: "隐式系统" },
+  { value: "reaction_functions", label: "反应函数" },
+  { value: "failed_with_reason", label: "求解失败" },
+  { value: "needs_model_clarification", label: "需补模型" },
   { value: "symbolic_failure", label: "符号失败" },
 ];
 

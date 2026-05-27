@@ -122,11 +122,29 @@ Current boundary: this v2 is a deterministic, reviewable section-revision loop. 
 
 - [x] If SymPy is invoked, isolate it behind a small wrapper with timeouts and input limits. The app must keep working when Python/SymPy is unavailable.
 
-- [x] The UI summary must never present unsupported expressions as proven. Unsupported or too-complex checks should route to artificial review language, not failure language.
+- [x] The UI summary must never present unsupported expressions as proven. Unsupported or too-complex checks should route to manual-review language, not failure language.
+
+- [x] The right-side math verification panel should explain what to do with 需修正, 条件不足, and 人工复核, and should link the user back to model, equilibrium, or properties review surfaces.
+
+- [x] The panel should merge persisted async/SymPy review notes from `researchSession.mathVerificationChecks`, not just immediate in-memory verifier output.
 
 - [x] Failed checks should block unsafe continuation to paper output until the user reviews or regenerates the relevant asset.
 
-Current boundary: this release keeps CAS/SymPy optional. A restricted Python/SymPy wrapper now rechecks property-analysis derivatives when the bounded verifier cannot handle a safe expression, rechecks explicit equilibrium FOC residuals by substituting candidate closed forms, compares explicit FOC candidates against an independent `sympy.solve` result, can derive FOC residuals from safe structured profit expressions when candidate FOC text is not executable, and records SymPy review notes on the proposed equilibrium patch plus the project math-verification summary, right-side math-verification panel, audit context, and Markdown export. The export now includes a reproducible SymPy review script that separates raw profit-function FOC diagnostics from executable equilibrium residual substitution and property-derivative checks. Unavailable Python/SymPy, unsafe input, timeouts, and too-complex expressions degrade to manual review. The app still does not execute arbitrary model-generated Python code or use external SymPy as the primary solver for arbitrary equilibrium models.
+Current boundary: this release keeps CAS/SymPy optional. A restricted Python/SymPy wrapper now rechecks property-analysis derivatives when the bounded verifier cannot handle a safe expression, rechecks explicit equilibrium FOC residuals by substituting candidate closed forms, compares explicit FOC candidates against an independent `sympy.solve` result, can derive FOC residuals from safe structured profit expressions when candidate FOC text is not executable, and records SymPy review notes on the proposed equilibrium patch plus the project math-verification summary, right-side math-verification panel, audit context, and Markdown export. The right-side panel now explains how to handle 需修正, 条件不足, and 人工复核, and merges persisted async review notes into the visible summary. The export now includes a reproducible SymPy review script that separates raw profit-function FOC diagnostics from executable equilibrium residual substitution and property-derivative checks. Unavailable Python/SymPy, unsafe input, timeouts, and too-complex expressions degrade to manual review. The app still does not execute arbitrary model-generated Python code or use external SymPy as the primary solver for arbitrary equilibrium models.
+
+## Task 3.5: 论文 Markdown / KaTeX 渲染稳定性
+
+**Files:**
+
+- Modify: `src/lib/markdown-math.ts`
+- Modify: `src/components/markdown-renderer.test.mjs`
+- Modify: `src/components/research-workspace/research-assets-panel.tsx`
+
+- [x] Preserve existing inline math, display math, code spans, and fenced code blocks before wrapping bare symbolic tokens.
+- [x] Protect `$$...$$` display math blocks so symbols inside a formula are not wrapped again as inline math.
+- [x] Keep paper preview usable for generated paper sections and exported research Markdown that includes formulas plus the reproducible SymPy script.
+
+Current boundary: the renderer protects well-formed Markdown/LaTeX delimiters. If a user manually pastes unmatched `$`, `$$`, `\(`, or `\[` delimiters, the Markdown still needs manual cleanup.
 
 ## Task 4: 长任务续跑 v1
 

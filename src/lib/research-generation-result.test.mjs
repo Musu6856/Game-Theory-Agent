@@ -43,7 +43,7 @@ test("successful generation remains persistable", () => {
   assert.equal(getPersistableResearchProject(result), project);
 });
 
-test("symbolic equilibrium fallback remains persistable", () => {
+test("draft equilibrium fallback is not persisted as a completed equilibrium", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "研究二手平台佣金与补贴策略",
@@ -62,10 +62,11 @@ test("symbolic equilibrium fallback remains persistable", () => {
     assistantMessage: "已生成本地符号均衡推导",
   };
 
-  assert.equal(getPersistableResearchProject(result), solved);
+  assert.equal(solved.equilibriumResult?.status, "derivation_draft");
+  assert.equal(getPersistableResearchProject(result), null);
 });
 
-test("solved equilibrium fallback remains persistable when stale property analyses exist", () => {
+test("accepted default-scope fallback remains persistable when stale property analyses exist", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "研究二手平台佣金与补贴策略",
@@ -75,10 +76,13 @@ test("solved equilibrium fallback remains persistable when stale property analys
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
-  const reSolved = generateSymbolicEquilibrium(analyzed);
+  const reSolved = generateSymbolicEquilibrium(analyzed, {
+    acceptDefaultFallbackScope: true,
+  });
 
   const result = {
     project: reSolved,

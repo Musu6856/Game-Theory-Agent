@@ -84,6 +84,11 @@ const EQUILIBRIUM_STATUS_LABELS = {
   idle: "待求解",
   solved: "已求解",
   needs_revision: "需修正",
+  derivation_draft: "推导草稿",
+  implicit_system: "隐式系统",
+  reaction_functions: "反应函数",
+  failed_with_reason: "求解失败",
+  needs_model_clarification: "需补模型",
   symbolic_failure: "符号失败",
 } as const;
 

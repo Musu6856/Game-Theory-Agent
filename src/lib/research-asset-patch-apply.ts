@@ -973,6 +973,11 @@ function parseEquilibriumStatus(
   return value === "idle" ||
     value === "solved" ||
     value === "needs_revision" ||
+    value === "derivation_draft" ||
+    value === "implicit_system" ||
+    value === "reaction_functions" ||
+    value === "failed_with_reason" ||
+    value === "needs_model_clarification" ||
     value === "symbolic_failure"
     ? value
     : null;

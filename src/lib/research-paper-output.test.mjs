@@ -23,7 +23,8 @@ test("buildResearchProjectMarkdown still produces a preview when sections are em
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
   generated.sections = [];

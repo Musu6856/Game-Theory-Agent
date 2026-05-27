@@ -21,6 +21,7 @@ import {
   adoptResearchDirection,
   confirmResearchModel,
   createExplorationProject,
+  generateSymbolicEquilibrium,
 } from "./research-session.ts";
 
 function createOpennessRevenueShareModel() {
@@ -1145,7 +1146,7 @@ test("build fallback can recover model phase from a project without directions",
   assert.ok(result.project.hotellingModel);
 });
 
-test("equilibrium generation produces symbolic Hotelling assets", async () => {
+test("equilibrium generation fallback produces a diagnostic draft", async () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "研究二手交易平台佣金与补贴",
@@ -1174,32 +1175,23 @@ test("equilibrium generation produces symbolic Hotelling assets", async () => {
 
   assert.equal(result.usedFallback, true);
   assert.equal(result.project.researchSession?.phase, "equilibrium");
-  assert.equal(result.project.equilibriumResult?.status, "solved");
-  assert.match(result.project.equilibriumResult?.derivation ?? "", /无差异条件|需求份额/);
+  assert.equal(result.project.equilibriumResult?.status, "derivation_draft");
   assert.ok(result.project.equilibriumResult?.closedForm);
-  assert.match(
+  assert.doesNotMatch(
     result.project.equilibriumResult?.closedForm ?? "",
     /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
   );
-  assert.match(
+  assert.doesNotMatch(
     result.project.equilibriumResult?.closedForm ?? "",
     /s_A\^\*=s_B\^\*=\\frac\{t_S\+\\alpha_S-2t_B-2\\alpha_B\}\{2\}/
   );
-  assert.match(result.project.equilibriumResult?.code ?? "", /sympy/);
+  assert.match(result.project.equilibriumResult?.code ?? "", /sp\.diff/);
   assert.equal(
     result.project.researchSession?.assetSummary.pendingDecision?.kind,
-    "analyze_properties"
+    "solve_equilibrium"
   );
-  assert.ok(
-    result.project.researchSession?.assetSummary.nextActions.includes(
-      "生成性质分析"
-    )
-  );
-  assert.ok(
-    result.project.equilibriumResult?.warnings.some((warning) =>
-      warning.includes("不使用数值模拟")
-    )
-  );
+  assert.ok(result.project.researchSession?.assetSummary.nextActions.length);
+  assert.ok(result.project.equilibriumResult?.warnings.length);
 });
 
 test("equilibrium generation rejects simulation-only provider output", async () => {
@@ -1297,7 +1289,7 @@ test("equilibrium parse fallback stays grounded in the current model decisions",
   ].join("\n");
 
   assert.equal(result.usedFallback, true);
-  assert.equal(equilibrium?.status, "symbolic_failure");
+  assert.equal(equilibrium?.status, "derivation_draft");
   assert.match(fallbackText, /o_A/);
   assert.match(fallbackText, /\\tau_A/);
   assert.doesNotMatch(fallbackText, /s_i|s_A|s_B/);
@@ -1311,7 +1303,7 @@ test("equilibrium parse fallback stays grounded in the current model decisions",
   );
 });
 
-test("equilibrium generation falls back when provider only returns a symbolic failure draft", async () => {
+test("equilibrium generation preserves symbolic failure as a draft without solved fallback", async () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "研究商家多归属的外卖平台竞争",
@@ -1354,11 +1346,81 @@ test("equilibrium generation falls back when provider only returns a symbolic fa
     }
   );
 
-  assert.equal(result.usedFallback, true);
-  assert.equal(result.project.equilibriumResult?.status, "solved");
-  assert.match(
+  assert.equal(result.usedFallback, false);
+  assert.equal(result.project.equilibriumResult?.status, "symbolic_failure");
+  assert.equal(result.project.researchSession?.phase, "equilibrium");
+  assert.equal(
+    result.project.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
+  assert.doesNotMatch(
     result.project.equilibriumResult?.closedForm ?? "",
     /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
+  );
+  assert.match(
+    result.project.researchSession?.messages.at(-1)?.content ?? "",
+    /当前只能得到隐式系统草稿/
+  );
+});
+
+test("equilibrium generation accepts implicit-system drafts without solved coercion", async () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "研究复杂平台推荐机制",
+    now: 1710000000000,
+  });
+  const { project: modelProject } = await generateResearchProject(
+    {
+      action: "build_model",
+      rawIdea: project.rawIdea,
+      selectedDirectionId: "secondhand-commission-subsidy-hotelling",
+      project,
+    },
+    {
+      complete: async () => "{",
+    }
+  );
+
+  const result = await generateResearchProject(
+    {
+      action: "solve_equilibrium",
+      rawIdea: modelProject.rawIdea,
+      project: modelProject,
+    },
+    {
+      complete: async () =>
+        JSON.stringify({
+          assistantMessage: "我得到反应函数和隐式系统，但还不能声明闭式均衡。",
+          equilibriumResult: {
+            status: "implicit_system",
+            concept: "隐式均衡系统",
+            solvingSteps: ["写出利润函数", "列 FOC", "整理为 F(z,theta)=0"],
+            focs: ["F_1(z,theta)=0", "F_2(z,theta)=0"],
+            conditions: ["det J_z F != 0"],
+            closedForm: "F(z,theta)=0",
+            derivation: "系统停在隐式均衡方程，暂未通过二阶条件。",
+            code: "import sympy as sp\n# implicit system",
+            warnings: ["不能进入性质分析。"],
+            solverScratchpad: {
+              status: "implicit_system",
+              implicitSystem: ["F_1(z,theta)=0", "F_2(z,theta)=0"],
+              failedWithReason: "闭式求解条件不足。",
+              needsModelClarification: ["补充推荐强度的边界约束。"],
+            },
+          },
+        }),
+    }
+  );
+
+  assert.equal(result.usedFallback, false);
+  assert.equal(result.project.equilibriumResult?.status, "implicit_system");
+  assert.equal(
+    result.project.equilibriumResult?.solverScratchpad?.status,
+    "implicit_system"
+  );
+  assert.equal(
+    result.project.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
   );
 });
 
@@ -1487,14 +1549,9 @@ test("property analysis fallback advances from equilibrium to analysis phase", a
       complete: async () => "{",
     }
   );
-  const { project: equilibriumProject } = await generateResearchProject(
-    {
-      action: "solve_equilibrium",
-      rawIdea: modelProject.rawIdea,
-      project: modelProject,
-    },
-    {}
-  );
+  const equilibriumProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
+  });
 
   const result = await generateResearchProject(
     {
@@ -1534,14 +1591,9 @@ test("successful property analysis generation uses symbolic provider result", as
       complete: async () => "{",
     }
   );
-  const { project: equilibriumProject } = await generateResearchProject(
-    {
-      action: "solve_equilibrium",
-      rawIdea: modelProject.rawIdea,
-      project: modelProject,
-    },
-    {}
-  );
+  const equilibriumProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
+  });
 
   const result = await generateResearchProject(
     {
@@ -1623,14 +1675,9 @@ test("successful property analysis accepts unicode symbolic derivatives", async 
       complete: async () => "{",
     }
   );
-  const { project: equilibriumProject } = await generateResearchProject(
-    {
-      action: "solve_equilibrium",
-      rawIdea: modelProject.rawIdea,
-      project: modelProject,
-    },
-    {}
-  );
+  const equilibriumProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
+  });
 
   const result = await generateResearchProject(
     {
@@ -1717,16 +1764,19 @@ test("equilibrium fallback solves symbolically after explicit solve action", asy
 
   assert.equal(result.usedFallback, true);
   assert.equal(result.project.researchSession?.phase, "equilibrium");
-  assert.equal(result.project.equilibriumResult?.status, "solved");
-  assert.match(result.project.equilibriumResult?.code ?? "", /sympy/);
-  assert.match(
+  assert.equal(result.project.equilibriumResult?.status, "derivation_draft");
+  assert.ok(result.project.equilibriumResult?.closedForm);
+  assert.doesNotMatch(
     result.project.equilibriumResult?.closedForm ?? "",
-    /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
+    /n_A\^\{B\*\}=n_B\^\{B\*\}=n_A\^\{S\*\}=n_B\^\{S\*\}=\\frac\{1\}\{2\}/
   );
-  assert.match(result.project.equilibriumResult?.code ?? "", /sympy|sp\.solve/);
+  assert.equal(
+    result.project.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
 });
 
-test("property analysis fallback runs after explicit solve action", async () => {
+test("property analysis fallback refuses to run from a draft fallback equilibrium", async () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "研究二手交易平台相关模型",
@@ -1749,17 +1799,13 @@ test("property analysis fallback runs after explicit solve action", async () => 
     project: built.project,
   });
 
-  const result = await generateResearchProject({
-    action: "analyze_properties",
-    rawIdea: solved.project.rawIdea,
-    project: solved.project,
-  });
-
-  assert.equal(result.usedFallback, true);
-  assert.equal(result.project.researchSession?.phase, "analysis");
-  assert.equal(result.project.propertyAnalyses?.length, 3);
-  assert.match(
-    result.project.propertyAnalyses?.[0].symbolicResult ?? "",
-    /\\frac\{\\partial \\tau_i\^\*\}\{\\partial \\alpha_B\}=-\\frac\{2\}\{q\}/
+  await assert.rejects(
+    () =>
+      generateResearchProject({
+        action: "analyze_properties",
+        rawIdea: solved.project.rawIdea,
+        project: solved.project,
+      }),
+    /solved closed-form symbolic equilibrium/
   );
 });

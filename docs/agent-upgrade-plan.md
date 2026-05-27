@@ -22,7 +22,7 @@ PaperForge-Agent 最终应该像一个博弈论论文建模与写作助理，而
 这一轮不是再补一个孤立按钮，而是把现有 Agent loop 继续做得更长程、更可靠、更适合研究协作。优先级如下：
 
 1. 版本对比与影响摘要：应用、拒绝或回滚 patch 后，系统要解释本次变更影响了哪些资产、复核重点是什么、下一步为什么要重算或改写。
-2. 更强的数学验证：在已有符号一致性、偏导复算、符号方向和条件强弱检查基础上，增加结构化验证摘要，明确“已复算通过 / 复算失败 / 条件不足 / 暂不支持复算”的差别。
+2. 更强的数学验证：在已有符号一致性、偏导复算、FOC 残差、独立求解对照、符号方向和条件强弱检查基础上，增加结构化验证摘要，明确“已通过 / 需修正 / 条件不足 / 暂不支持 / 人工复核”的差别，并在 UI 中解释下一步处理方式。
 3. 章节级论文 Agent v2：论文输出不只是一整份草稿，还要能按章节提示依赖关系、引用一致性和需要复核的章节任务，并能为单个章节生成可审阅改写 patch。
 4. 必要 UI：右侧工作台展示版本复盘、数学验证摘要、章节复核任务，并让下一步建议优先考虑高风险版本影响和数学风险。
 
@@ -335,9 +335,11 @@ type EvidenceSource = {
 - 已完成：候选均衡不会静默覆盖正式 `equilibriumResult`，而是以 `equilibrium` patch 形式进入右侧待审核修改建议。
 - 已完成 v1：候选均衡如果缺少 solved 状态、闭式表达、FOC、推导步骤或存在条件，Agent 会带着自检问题重试一次，再决定提交哪版候选给用户审核。
 - 已完成 v1：候选均衡会经过数学验证 v1，检查 FOC、条件、闭式解、推导和代码片段中引用的符号是否能在已确认模型中找到来源；如果出现未定义或未落地符号，Agent 会把问题写入 trace 并触发一次有边界修复。
+- 已完成 v2：候选均衡会记录 `compiled_game_system`、`generated_foc_system`、`sympy_residual_check`、`solver_attempt` 和 `sympy_solve_check` 数学产物；如果候选 FOC 不可执行但模型利润函数安全，系统会从结构化利润函数生成 FOC 残差，再做候选闭式解回代和独立 `sympy.solve` 对照。
+- 已完成 v2：不可执行、Python/SymPy 不可用、输入不安全或表达式过长时，均衡复核会保存人工复核产物和跳过原因，不会把暂不支持误判为通过或失败。
 - 已完成：未应用的均衡 patch 会阻止直接进入性质分析。
 - 已完成：应用均衡 patch 后才把候选结果写入右侧均衡资产，并把下一步推进到性质分析。
-- 待加强：当前自检修复主要覆盖 solved 状态、闭式表达、FOC、求解步骤、存在条件和符号一致性；后续可扩展内点/边界分类、完整 SymPy 复算、失败诊断和模型简化 patch 建议。
+- 待加强：当前自检修复主要覆盖 solved 状态、闭式表达、FOC、求解步骤、存在条件、符号一致性、显式残差复核和有限独立求解对照；后续可扩展更完整的内点/边界分类、失败诊断和模型简化 patch 建议。
 
 ### Phase 4: 性质分析 Agent 化
 
@@ -400,22 +402,24 @@ type EvidenceSource = {
 - `src/lib/research-agent/controller.ts` 已提供 `planSafeContinuation`，用于规划“推进到审核点”的安全连续执行。
 - “推进到审核点”支持模型确认后继续生成均衡候选，也支持从已确认模型、已完成均衡或已完成性质分析开始推进到下一条待审核 patch。
 - 连续推进不会替用户选择研究方向，也不会自动应用或拒绝任何 patch；一旦出现待审核 patch 就停下。
-- `src/lib/research-agent/trace.ts` 已提供 Agent run 历史归档和安全连续推进 trace 记录；每次 Agent 执行会保留到 `researchSession.agentRunHistory`，最近一次仍兼容保存在 `researchSession.agentRun`。
-- `src/lib/research-agent/state.ts` 已为步骤状态变化记录 `checkpoints`，包含步骤、状态、工具名、时间和前一状态；右侧“来源”tab 会显示最近检查点。
-- `src/lib/research-agent/resume.ts` 已提供 AgentRun 续跑工具：按 `runId` 找回历史 run，选择最近失败/运行中 checkpoint，把失败步骤重新置为 running，并保留同一条 trace/checkpoint 历史。
-- `src/lib/research-agent/trace-replay.ts` 已提供步骤回放与审计导出：把 plan、trace event 和 checkpoint 合并为按步骤排列的回放项，标记失败、恢复、最近事件和未归属事件，并能生成单次 AgentRun Markdown 审计记录。
+- `src/lib/research-agent/trace.ts` 已提供 Agent run 历史归档和安全连续推进 trace 记录；每次 Agent 执行会保留到 `researchSession.agentRunHistory`，最新一次仍兼容保存在 `researchSession.agentRun`。
+- `src/lib/research-agent/state.ts` 已为步骤状态变化记录 `checkpoints`，包含步骤、状态、工具名、时间和前一状态；右侧“来源”tab 会显示最新检查点。
+- `src/lib/research-agent/resume.ts` 已提供 AgentRun 续跑工具：按 `runId` 找回历史 run，选择最新失败/运行中 checkpoint，把失败步骤重新置为 running，并保留同一条 trace/checkpoint 历史。
+- `src/lib/research-agent/trace-replay.ts` 已提供步骤回放与审计导出：把 plan、trace event 和 checkpoint 合并为按步骤排列的回放项，标记失败、恢复、最新事件和未归属事件，并能生成单次 AgentRun Markdown 审计记录。
 - `src/lib/research-agent/project-audit.ts` 已提供项目级 Markdown 审计导出：汇总项目概览、联网搜索来源、方向选择、待审核修改建议、Agent 执行记录和资产审核历史。
-- 右侧“来源”tab 会展示最近多次 Agent 执行记录，包括连续推进的计划、已执行步骤、停止原因、阻塞项和步骤回放。
+- 右侧“来源”tab 会展示最新多次 Agent 执行记录，包括连续推进的计划、已执行步骤、停止原因、阻塞项和步骤回放。
 - 右侧“来源”tab 的执行记录支持按全部、异常、恢复、工具、模型和审核筛选，支持展开完整 trace/checkpoint 元数据，也支持导出单条执行记录和项目级审计报告。
-- `src/lib/research-agent/recovery.ts` 已提供恢复建议 v1：根据最近一次 `AgentRun` 的 `failed`、`paused` 或 `running` 状态，结合最近 checkpoint 判断应重试当前步骤、继续推进到审核点，还是先处理待审核 patch。
+- `src/lib/research-agent/recovery.ts` 已提供恢复建议 v1：根据最新一次 `AgentRun` 的 `failed`、`paused` 或 `running` 状态，结合最新 checkpoint 判断应重试当前步骤、继续推进到审核点，还是先处理待审核 patch。
 - 右侧工作台顶部会在需要时显示恢复提示；恢复动作复用现有模型确认、Agent action 和“推进到审核点”，不会替用户选择方向，也不会自动应用 patch。对均衡、性质分析和论文草稿 action，恢复请求会把 `runId` 和 checkpoint 传回 Agent 入口。
 - `src/lib/research-pending-patches-layout.ts` 已提供审核负担分层：模型和均衡 patch 默认是“重点审核”，普通性质分析 patch 是“标准审核”，论文草稿整理是“快速审核”；如果性质分析或论文 patch 带有数学自检风险，也会提升为“重点审核”。
 - 总控阻塞项会带出同一套审核强度和原因，右侧待审核卡片也会展示简短徽标；这只降低用户判断负担，不改变“核心资产必须人工审核”的安全边界。
 - 右侧待审核区已支持“应用快速审核项”：`src/lib/research-asset-patch-apply.ts` 会重新筛选低风险 patch 后再批量应用，避免 UI 误传模型、均衡或带数学风险的 patch id。
 - `src/lib/research-agent/version-history.ts` 已为资产审核记录生成“后续建议”，历史页会显示应用或拒绝 patch 后应该接回哪一步。
 - `src/lib/research-agent/version-history.ts` 已为资产审核记录生成“影响复盘”，说明受影响资产、复核重点和建议下一步；历史页和项目级审计报告都会展示这部分内容。
-- `src/lib/research-agent/version-review-summary.ts` 已把多条版本事件汇总成项目级版本复盘摘要：待复核数量、最高优先级、受影响资产、最近影响和建议下一步。
+- `src/lib/research-agent/version-review-summary.ts` 已把多条版本事件汇总成项目级版本复盘摘要：待复核数量、最高优先级、受影响资产、最新影响和建议下一步。
 - `src/lib/research-agent/math-verification-summary.ts` 已把数学验证结果汇总成结构化状态，区分已通过、需修正、条件不足和人工复核。
+- `src/lib/research-agent/math-verification-summary.ts` 已提供处理提示：需修正引导用户回到模型/均衡/性质分析生成 reviewable fix，条件不足引导补参数条件，人工复核引导展开跳过原因后决定继续或修复。
+- 右侧数学验证面板会合并 `researchSession.mathVerificationChecks` 中持久化保存的异步/SymPy 复核记录，并提供模型设定、符号均衡和性质分析跳转入口。
 - 总控下一步建议会优先处理高风险版本复盘和数学验证失败；这只会引导用户复核，不会绕过 patch 审批。
 - `src/lib/research-agent/controller.test.mjs` 覆盖了待审核 patch 阻塞、方向选择、模型确认、均衡求解、性质分析、论文草稿、已成稿判断和安全连续推进计划。
 
@@ -432,9 +436,9 @@ type EvidenceSource = {
 - 已完成 v1：应用或拒绝 patch 后，资产历史会记录影响复盘；模型变更会提示重跑均衡/性质/论文，均衡变更会提示复核性质和论文，性质变更会提示复核论文，论文变更或拒绝项则标明不影响正式数学资产。
 - 已完成 v1：右侧“历史”tab 会在逐条历史前显示项目级版本复盘摘要，让用户先看到待复核数量、优先级、受影响资产和建议下一步。
 - 已完成 v1：右侧“质量 / 均衡 / 性质分析”会显示数学验证摘要，说明通过、需修正、条件不足和人工复核的检查数量。
-- 已完成 v1：AgentRun 会记录步骤检查点；失败、暂停或疑似中断的最近一次 AgentRun 会被转译成带检查点的安全恢复提示。
+- 已完成 v1：AgentRun 会记录步骤检查点；失败、暂停或疑似中断的最新一次 AgentRun 会被转译成带检查点的安全恢复提示。
 - 已完成 v1：均衡、性质分析和论文草稿 runner 可沿用同一 `AgentRun.id` 从失败步骤重试，并跳过该 run 中已经完成的准备步骤。
-- 已完成 v1：Agent 执行记录按步骤回放，用户能看到每一步的状态、最近说明、检查点数、事件数和恢复标记。
+- 已完成 v1：Agent 执行记录按步骤回放，用户能看到每一步的状态、最新说明、检查点数、事件数和恢复标记。
 - 已完成 v1：项目级 Markdown 审计报告会汇总来源、方向、待审核修改建议、Agent 执行记录和资产审核历史，方便把单条 trace 放回整个研究上下文。
 - 已完成 v1：模型、均衡和性质分析 runner 在自检失败时会最多重试一次候选生成，并在 trace 中记录 `repairAttempted`、剩余问题和是否修复成功。
 - 已完成 v1：均衡和性质分析 runner 已接入数学验证 v1；未落地符号会被视为自检问题进入同一个修复闭环，但正式资产仍必须经过待审核 patch。
@@ -466,7 +470,7 @@ type EvidenceSource = {
 - 已完成 v1：右侧工作台加入“历史”tab，展示资产类型、应用/拒绝状态、审核时间、修改路径、差异摘要、说明、拒绝原因和审核后的后续建议。
 - 已完成 v1：用户能看到某个资产为什么被改、何时被批准，以及对应的 patch id / source message id。
 - 已完成 v1：已应用历史记录可以生成“回滚建议”；回滚仍然进入待审核 patch 队列，由用户应用或拒绝，不会自动覆盖正式资产。
-- 已完成 v1：关键 AgentRun 的 `paused` / `failed` / `running` 状态会进入恢复建议层，支持安全重试、继续推进或引导先审核 patch；步骤 checkpoint 会辅助说明最近停在哪里。
+- 已完成 v1：关键 AgentRun 的 `paused` / `failed` / `running` 状态会进入恢复建议层，支持安全重试、继续推进或引导先审核 patch；步骤 checkpoint 会辅助说明最后停在哪里。
 - 已完成 v1：恢复执行会把新的 trace/checkpoint 接回原 AgentRun 历史，避免每次重试都开一条孤立记录。
 - 已完成 v1：右侧 Agent 执行记录以步骤回放展示历史 trace，方便用户理解“为什么推进到这里、哪里失败、是否恢复过”。
 - 已完成 v1：执行记录可以按异常、恢复、工具、模型和审核筛选，展开完整元数据，并导出单次 AgentRun 审计 Markdown。
@@ -483,12 +487,14 @@ type EvidenceSource = {
 
 1. 上线基础包：已补齐生产环境配置说明、测试脚本、发布检查清单、release readiness helper 和真实浏览器冒烟检查要求。
 2. 章节级论文 Agent v2：已支持选择单个章节、生成 `sections[sectionId]` 级 paper patch，并通过应用/拒绝流程保证只影响目标章节。
-3. CAS/SymPy v2：已将数学验证结果结构化为通过、失败、条件不足、暂不支持和人工复核；当前新增受限外部 SymPy 偏导复算、FOC 残差复核、显式 FOC 独立求解对照、从安全结构化利润函数生成 FOC 残差的入口，以及 Markdown 导出的可复核 SymPy 脚本。均衡复核即使跳过执行，也会保留 `generated_foc_system`、`sympy_residual_check`、`solver_attempt` 和 `sympy_solve_check` 的人工复核产物，但尚未把外部 SymPy 扩展为任意模型的完整均衡求解器。
+3. CAS/SymPy v2：已将数学验证结果结构化为通过、失败、条件不足、暂不支持和人工复核；当前新增受限外部 SymPy 偏导复算、FOC 残差复核、显式 FOC 独立求解对照、从安全结构化利润函数生成 FOC 残差的入口，以及 Markdown 导出的可复核 SymPy 脚本。右侧数学验证面板会解释需修正、条件不足和人工复核的处理方式，并合并持久化复核记录。均衡复核即使跳过执行，也会保留 `generated_foc_system`、`sympy_residual_check`、`solver_attempt` 和 `sympy_solve_check` 的人工复核产物，但尚未把外部 SymPy 扩展为任意模型的完整均衡求解器。
 4. 长任务续跑 v1：已记录 action、step checkpoint、patch id 和 stop reason；恢复时沿用旧 AgentRun，重复重试不会重复生成同一成功步骤的待审核 patch。后台持久任务 v1 已新增 `agent_tasks` 表、统一 task store、显式任务 run wrapper、API 任务入口、受保护 worker GET/POST batch 入口、Vercel Cron 配置、前端轮询刷新/页面恢复、任务密钥防御、项目归属校验、任务结果按当前 run 收口、runner 租约续租/写入前验证、任务级执行记录 UI、步骤级数学产物 checkpoint 回写、worker route 观测输出和真实 DB lifecycle probe；边界仍是不恢复半个 HTTP 请求。
 5. 产品交付包：已补齐课题组试用指南、维护者 runbook、demo 场景和反馈模板。
 6. 小范围测试准备：已定义 10-15 人试用窗口、成功指标、停止条件、试用记录模板和上线前 release checklist。
 
 本轮详细实施计划见 [docs/productization-release-plan.md](productization-release-plan.md)。
+
+下一轮均衡求解可信度改造见 [docs/equilibrium-reliability-plan.md](equilibrium-reliability-plan.md)。这条路线优先修正“结构化资产过早要求 solved/closedForm，导致复杂机制被收窄成漂亮对称 Hotelling 解”的问题，同时把二阶条件、Hessian 负定性、凹性或 KKT/边界分析纳入正式均衡晋升门槛，再继续推进更强求解器。
 
 ## 当前执行路线调整：求解内核优先
 
@@ -507,6 +513,10 @@ type EvidenceSource = {
 步骤级数学产物保存已接到执行链路：`reviewEquilibriumWithSympy` 生成 `compiled_game_system`、`generated_foc_system`、`sympy_residual_check`、`solver_attempt` 等产物时会增量发出事件；均衡 runner 将这些事件转交给任务执行器；`agent_tasks.checkpoints` 在任务运行中写入产物 id、类型、状态和快照。这个能力先服务于任务级恢复和审计，不改变正式资产写入规则，模型/均衡/性质/论文仍必须通过待审核 patch。
 
 已落地的产品化展示：右侧均衡页会展示最新待审核均衡候选，并同步展示该候选关联的数学产物。用户可以先检查闭式解、FOC、残差回代、solver attempt 和独立求解记录，再决定是否应用 patch；应用前仍不会覆盖正式均衡资产，也不会解锁性质分析。
+
+论文预览渲染已纳入产品化边界：Markdown renderer 会保护已有 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`、行内代码和代码块，再对裸符号做轻量包裹，避免论文输出里的块级公式被二次包裹后显示错乱。这个能力服务预览和导出可读性，不改变正式资产仍由 paper patch 审核进入的规则。
+
+下一轮执行顺序已经单独收敛到 `docs/equilibrium-reliability-plan.md`：先做两阶段均衡流程，恢复中间对话推导并新增 draft/scratchpad；再禁止漂亮 fallback 直接变成正式 solved 资产；随后补模型覆盖和反简化检查、二阶/Hessian/KKT 最优性验证、benchmark 题库、Solver v3，以及性质分析/论文输出的状态重接。
 
 ## 9. UI 方向
 

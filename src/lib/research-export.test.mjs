@@ -25,7 +25,8 @@ function createGeneratedResearchProject(rawIdea = "secondhand platform subsidy")
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
 }
@@ -66,7 +67,8 @@ test("buildResearchProjectMarkdown includes the core research assets", () => {
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
 

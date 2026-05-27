@@ -6,6 +6,7 @@ import type {
   ResearchMathArtifact,
   ResearchAssetChange,
   ResearchProject,
+  ResearchSessionMessage,
 } from "../types";
 import type {
   ResearchCompletionClient,
@@ -187,6 +188,47 @@ export async function runEquilibriumSolvingAgent(
     now
   );
   await recordStepStatus("draft-equilibrium", "completed");
+
+  if (!isSolvedEquilibriumCandidate(candidateEquilibrium)) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-equilibrium",
+        type: "tool_result",
+        message:
+          "均衡生成只得到推导草稿或隐式系统，已保留在中间对话中，暂不创建正式均衡 patch。",
+        metadata: {
+          status: candidateEquilibrium.status,
+          usedFallback: solveResult.usedFallback,
+        },
+      },
+      now
+    );
+    await recordStepStatus("review-equilibrium", "completed");
+    agentRun = {
+      ...agentRun,
+      status: "paused",
+      currentStepId: undefined,
+      pauseReason:
+        "当前只得到均衡推导草稿；需要继续推导、补模型或人工复核后才能生成正式均衡 patch。",
+      requiresApproval: false,
+      completedAt: now,
+    };
+
+    return {
+      project: attachEquilibriumDraftForReview({
+        originalProject: request.project,
+        solveResult,
+        equilibrium: candidateEquilibrium,
+        agentRun,
+        now,
+      }),
+      usedFallback: solveResult.usedFallback,
+      assistantMessage:
+        "这次只得到均衡推导草稿或隐式系统，我已保留在中间对话中；没有创建正式均衡 patch，也不会进入性质分析。",
+      agentRun,
+    };
+  }
 
   await recordStepStatus("review-equilibrium", "running");
   let review = await reviewEquilibriumCandidateWithKernel(
@@ -583,6 +625,60 @@ export async function runEquilibriumSolvingAgent(
     };
   }
 
+  if (!hasPromotionOptimalityEvidence(candidateEquilibrium)) {
+    agentRun = appendTraceEvent(
+      agentRun,
+      {
+        stepId: "review-equilibrium",
+        type: "tool_result",
+        message:
+          "均衡候选只包含一阶条件或闭式表达，缺少二阶/Hessian/凹性/KKT/边界证据，已保留为草稿。",
+        metadata: {
+          status: candidateEquilibrium.status,
+          promotionBlocked: true,
+          reason: "missing_second_order_or_boundary_evidence",
+        },
+      },
+      now
+    );
+    await recordStepStatus("review-equilibrium", "completed");
+    agentRun = {
+      ...agentRun,
+      status: "paused",
+      currentStepId: undefined,
+      pauseReason:
+        "当前均衡候选缺少二阶条件、Hessian、凹性、KKT 或边界分析证据；需要补足后才能生成正式均衡 patch。",
+      requiresApproval: false,
+      completedAt: now,
+    };
+
+    return {
+      project: attachEquilibriumDraftForReview({
+        originalProject: request.project,
+        solveResult,
+        equilibrium: candidateEquilibrium,
+        agentRun,
+        now,
+        draftReason:
+          "这版候选只证明了一阶条件，尚未证明利润最大化或边界/KKT 情况。",
+        reviewChecks: review.checks,
+        mathArtifacts: [
+          createEquilibriumCandidateArtifact({
+            equilibrium: candidateEquilibrium,
+            runId: agentRun.id,
+            patchId: `draft-equilibrium-${now}`,
+            now,
+          }),
+          ...accumulatedReviewArtifacts,
+        ],
+      }),
+      usedFallback: solveResult.usedFallback,
+      assistantMessage:
+        "这次只得到 FOC/闭式候选，但缺少二阶条件、Hessian、凹性、KKT 或边界分析证据。我已保留在中间对话中；没有创建正式均衡 patch，也不会进入性质分析。",
+      agentRun,
+    };
+  }
+
   const patch = createEquilibriumCandidatePatch({
     equilibrium: candidateEquilibrium,
     now,
@@ -717,6 +813,19 @@ function createEquilibriumCandidateArtifact({
 
 function isSolvedEquilibriumCandidate(equilibrium: EquilibriumResult) {
   return equilibrium.status === "solved" && equilibrium.closedForm.trim().length > 0;
+}
+
+function hasPromotionOptimalityEvidence(equilibrium: EquilibriumResult) {
+  const text = [
+    ...equilibrium.solvingSteps,
+    ...equilibrium.conditions,
+    equilibrium.derivation,
+    ...equilibrium.warnings,
+  ].join("\n");
+
+  return /二阶|second.?order|Hessian|海塞|负定|negative definite|凹|concav|KKT|边界|boundary|corner|约束最优|sufficien/i.test(
+    text
+  );
 }
 
 function createUnsolvedEquilibriumRepairDecision(review: {
@@ -976,6 +1085,106 @@ function attachEquilibriumPatchForReview({
     },
     agentRun
   );
+}
+
+function attachEquilibriumDraftForReview({
+  originalProject,
+  solveResult,
+  equilibrium,
+  agentRun,
+  now,
+  draftReason,
+  reviewChecks = [],
+  mathArtifacts = [],
+}: {
+  originalProject: ResearchProject;
+  solveResult: ResearchGenerationResponse;
+  equilibrium: EquilibriumResult;
+  agentRun: AgentRun;
+  now: number;
+  draftReason?: string;
+  reviewChecks?: MathVerificationCheck[];
+  mathArtifacts?: ResearchMathArtifact[];
+}) {
+  const session =
+    originalProject.researchSession ??
+    solveResult.project.researchSession ??
+    createInitialResearchSession(originalProject.rawIdea);
+  const providerMessages = solveResult.project.researchSession?.messages ?? [];
+  const messages = mergeMessagesById(session.messages, [
+    ...providerMessages,
+    {
+      id: `msg-equilibrium-agent-draft-${now}`,
+      role: "assistant" as const,
+      content: createEquilibriumDraftReviewMessage(equilibrium, draftReason),
+      createdAt: 0,
+    },
+  ]);
+
+  return attachAgentRun(
+    {
+      ...solveResult.project,
+      equilibriumResult: equilibrium,
+      propertyAnalyses: originalProject.propertyAnalyses,
+      researchSession: {
+        ...session,
+        phase: "equilibrium",
+        messages,
+        agentRun,
+        assetPatches: originalProject.researchSession?.assetPatches ?? [],
+        mathVerificationChecks: mergeSessionMathVerificationChecks(
+          session.mathVerificationChecks,
+          reviewChecks
+        ),
+        mathArtifacts: mergeSessionMathArtifacts(
+          session.mathArtifacts,
+          mathArtifacts
+        ),
+        assetSummary: {
+          ...session.assetSummary,
+          equilibriumStatus: equilibrium.status,
+          pendingDecision: {
+            kind: "solve_equilibrium",
+            prompt:
+              draftReason ??
+              "当前只有均衡推导草稿或隐式系统；请继续推导、补齐模型输入或人工复核后再生成正式均衡。",
+          },
+          nextActions: [
+            "阅读中间对话中的均衡推导草稿",
+            "检查 FOC、二阶条件和边界条件是否完整",
+            "补齐模型输入后重新生成正式均衡",
+          ],
+        },
+      },
+    },
+    agentRun
+  );
+}
+
+function mergeMessagesById(
+  current: ResearchSessionMessage[],
+  incoming: ResearchSessionMessage[]
+) {
+  const byId = new Map<string, ResearchSessionMessage>();
+
+  [...current, ...incoming].forEach((message) => {
+    byId.set(message.id, message);
+  });
+
+  return [...byId.values()];
+}
+
+function createEquilibriumDraftReviewMessage(
+  equilibrium: EquilibriumResult,
+  draftReason?: string
+) {
+  return [
+    "这次均衡求解停在推导草稿阶段，暂时没有创建正式均衡 patch。",
+    "",
+    `当前状态：${equilibrium.status}。`,
+    draftReason ? `原因：${draftReason}` : "",
+    "需要继续检查 FOC、二阶条件/Hessian 或边界/KKT 条件后，才能把结果晋升为正式均衡资产。",
+  ].filter(Boolean).join("\n");
 }
 
 function attachModelRepairPatchForReview({

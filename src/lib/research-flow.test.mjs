@@ -57,7 +57,8 @@ test("research flow exposes analysis after symbolic equilibrium even if message 
   const solved = generateSymbolicEquilibrium(
     confirmResearchModel(
       adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-    )
+    ),
+    { acceptDefaultFallbackScope: true }
   );
   const withoutSolveText = {
     ...solved,
@@ -177,7 +178,8 @@ test("research flow does not mark missing property analysis as stale after equil
   const solved = generateSymbolicEquilibrium(
     confirmResearchModel(
       adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-    )
+    ),
+    { acceptDefaultFallbackScope: true }
   );
 
   const state = getResearchFlowState({
@@ -209,7 +211,8 @@ test("research flow marks completed analysis without pending action", () => {
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
 
@@ -232,7 +235,8 @@ test("research flow exposes re-analysis when prior properties are stale", () => 
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
   const staleAfterNewEquilibrium = {
@@ -275,7 +279,8 @@ test("research flow opens paper drafting after stable property analysis", () => 
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
 
@@ -296,7 +301,8 @@ test("research flow blocks property analysis while an equilibrium patch is still
   const solved = generateSymbolicEquilibrium(
     confirmResearchModel(
       adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-    )
+    ),
+    { acceptDefaultFallbackScope: true }
   );
   const withPendingEquilibriumPatch = {
     ...solved,
@@ -337,7 +343,8 @@ test("research flow blocks duplicate generation while a property patch is still 
   const solved = generateSymbolicEquilibrium(
     confirmResearchModel(
       adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-    )
+    ),
+    { acceptDefaultFallbackScope: true }
   );
   const withPendingPropertiesPatch = {
     ...solved,
@@ -444,7 +451,8 @@ test("research flow keeps the model-tab solve action available after stale model
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
   const pendingReSolveProject = {
@@ -559,7 +567,9 @@ test("research primary actions stay consistent across phase surfaces", () => {
   const confirmed = confirmResearchModel(
     adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
   );
-  const solved = generateSymbolicEquilibrium(confirmed);
+  const solved = generateSymbolicEquilibrium(confirmed, {
+    acceptDefaultFallbackScope: true,
+  });
   const modelAction = getResearchModelPrimaryAction(
     getResearchFlowState(confirmed)
   );
@@ -776,7 +786,8 @@ test("model edits mark equilibrium and property assets stale", () => {
     generateSymbolicEquilibrium(
       confirmResearchModel(
         adoptResearchDirection(project, "secondhand-commission-subsidy-hotelling")
-      )
+      ),
+      { acceptDefaultFallbackScope: true }
     )
   );
   const updated = markResearchAssetsStaleAfterModelEdit({

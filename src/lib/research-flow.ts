@@ -245,10 +245,10 @@ export function getResearchFlowState(
     Boolean(project?.hotellingModel) &&
     !hasPendingReviewPatch &&
     (pendingKind === "solve_equilibrium" ||
-      equilibriumStatus === "symbolic_failure") &&
+      isDraftEquilibriumStatus(equilibriumStatus)) &&
     (!hasPropertyAnalyses ||
       isEquilibriumStale ||
-      equilibriumStatus === "symbolic_failure" ||
+      isDraftEquilibriumStatus(equilibriumStatus) ||
       hasStalePropertyAnalyses);
   const canAnalyzeProperties =
     pendingKind === "analyze_properties" &&
@@ -276,7 +276,7 @@ export function getResearchFlowState(
     isEquilibriumStale,
     isPropertyAnalysisStale: hasStalePropertyAnalyses,
     equilibriumStatusLabel:
-      equilibriumStatus === "symbolic_failure"
+      isDraftEquilibriumStatus(equilibriumStatus)
         ? "未得到闭式均衡"
         : canSolveEquilibrium
           ? "等待生成符号均衡推导"
@@ -287,7 +287,7 @@ export function getResearchFlowState(
       ? formatAnalysisStatus(project?.propertyAnalyses?.length ?? 0)
       : canAnalyzeProperties
         ? "等待生成性质分析"
-        : equilibriumStatus === "symbolic_failure"
+        : isDraftEquilibriumStatus(equilibriumStatus)
           ? "等待闭式均衡完成"
           : "等待符号均衡完成",
   };
@@ -298,7 +298,20 @@ function isUsableEquilibriumStatus(status?: EquilibriumResult["status"]) {
 }
 
 function isGeneratedEquilibriumStatus(status?: EquilibriumResult["status"]) {
-  return status === "solved" || status === "symbolic_failure";
+  return status === "solved" || isDraftEquilibriumStatus(status);
+}
+
+export function isDraftEquilibriumStatus(
+  status?: EquilibriumResult["status"]
+) {
+  return (
+    status === "derivation_draft" ||
+    status === "implicit_system" ||
+    status === "reaction_functions" ||
+    status === "failed_with_reason" ||
+    status === "needs_model_clarification" ||
+    status === "symbolic_failure"
+  );
 }
 
 function createFreshResearchAssetFreshness(): ResearchAssetFreshnessMap {
@@ -328,7 +341,16 @@ function formatEquilibriumStatus(
     case "solved":
       return "已生成符号均衡";
     case "symbolic_failure":
+    case "failed_with_reason":
       return "未得到闭式均衡";
+    case "derivation_draft":
+      return "推导草稿";
+    case "implicit_system":
+      return "隐式系统";
+    case "reaction_functions":
+      return "反应函数草稿";
+    case "needs_model_clarification":
+      return "需要补模型";
     default:
       return "等待生成";
   }

@@ -208,7 +208,7 @@ test("adopts seller multihoming with a direction-specific fallback scaffold", ()
   );
 });
 
-test("seller-multihoming equilibrium fallback returns a narrowed closed-form core", () => {
+test("seller-multihoming equilibrium fallback stays draft-only instead of using a narrowed closed-form core", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "Research secondhand platform seller multihoming",
@@ -221,30 +221,23 @@ test("seller-multihoming equilibrium fallback returns a narrowed closed-form cor
   const solved = generateSymbolicEquilibrium(confirmed);
 
   assert.equal(solved.researchSession?.phase, "equilibrium");
-  assert.equal(solved.equilibriumResult?.status, "solved");
-  assert.match(
-    solved.equilibriumResult?.closedForm ?? "",
-    /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
-  );
-  assert.match(
-    solved.equilibriumResult?.closedForm ?? "",
-    /m_{AB}\^\*=1/
-  );
+  assert.equal(solved.equilibriumResult?.status, "derivation_draft");
+  assert.doesNotMatch(solved.equilibriumResult?.closedForm ?? "", /\\frac\{1\}\{2\}/);
   assert.match(
     [
       solved.equilibriumResult?.concept,
       solved.equilibriumResult?.derivation,
       ...(solved.equilibriumResult?.warnings ?? []),
     ].join("\n"),
-    /卖家多归属|收窄|对称内部/
+    /卖家多归属|fallback|草稿/
   );
   assert.equal(
     solved.researchSession?.assetSummary.pendingDecision?.kind,
-    "analyze_properties"
+    "solve_equilibrium"
   );
 });
 
-test("non-recommended property fallback avoids default commission subsidy comparative statics", () => {
+test("non-recommended equilibrium fallback does not unlock property analysis", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "Research secondhand platform seller multihoming",
@@ -256,27 +249,15 @@ test("non-recommended property fallback avoids default commission subsidy compar
     )
   );
 
-  const analyzed = generatePropertyAnalysis(solved);
-  const analysisText = (analyzed.propertyAnalyses ?? [])
-    .map((analysis) =>
-      [
-        analysis.target,
-        analysis.parameter,
-        analysis.symbolicResult,
-        analysis.propositionDraft,
-        analysis.proofSketch,
-        analysis.intuition,
-        ...(analysis.warnings ?? []),
-      ].join("\n")
-    )
-    .join("\n");
-
-  assert.equal(analyzed.researchSession?.phase, "analysis");
-  assert.doesNotMatch(
-    analysisText,
-    /\\frac\{\\partial \\tau_i\^\*\}\{\\partial \\alpha_B\}=-\\frac\{2\}\{q\}/
+  assert.equal(solved.equilibriumResult?.status, "derivation_draft");
+  assert.equal(
+    solved.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
   );
-  assert.match(analysisText, /multihoming|m_i|kappa|seller/i);
+  assert.throws(
+    () => generatePropertyAnalysis(solved),
+    /solved closed-form symbolic equilibrium/
+  );
 });
 
 test("other non-default directions stop at a model-grounded symbolic scaffold", () => {
@@ -300,7 +281,7 @@ test("other non-default directions stop at a model-grounded symbolic scaffold", 
     ...(solved.equilibriumResult?.warnings ?? []),
   ].join("\n");
 
-  assert.equal(solved.equilibriumResult?.status, "symbolic_failure");
+  assert.equal(solved.equilibriumResult?.status, "derivation_draft");
   assert.equal(
     solved.researchSession?.assetSummary.pendingDecision?.kind,
     "solve_equilibrium"
@@ -471,7 +452,7 @@ test("confirms the model and marks the session ready for symbolic solving", () =
   );
 });
 
-test("generates symbolic equilibrium and moves the session into equilibrium phase", () => {
+test("generates a diagnostic equilibrium draft by default", () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",
     rawIdea: "研究二手平台佣金和补贴策略",
@@ -484,36 +465,29 @@ test("generates symbolic equilibrium and moves the session into equilibrium phas
   const solved = generateSymbolicEquilibrium(confirmed);
 
   assert.equal(solved.researchSession?.phase, "equilibrium");
-  assert.equal(solved.equilibriumResult?.status, "solved");
+  assert.equal(solved.equilibriumResult?.status, "derivation_draft");
   assert.ok(solved.equilibriumResult?.closedForm);
-  assert.match(
+  assert.doesNotMatch(
     solved.equilibriumResult?.closedForm ?? "",
     /\\tau_A\^\*=\\tau_B\^\*=\\frac\{t_S-2\\alpha_B\}\{q\}/
   );
-  assert.match(
+  assert.doesNotMatch(
     solved.equilibriumResult?.closedForm ?? "",
     /s_A\^\*=s_B\^\*=\\frac\{t_S\+\\alpha_S-2t_B-2\\alpha_B\}\{2\}/
   );
-  assert.match(
-    solved.equilibriumResult?.derivation ?? "",
-    /n_A\^B=\\frac\{1\}\{2\}\+\\frac\{t_S\\Delta s-\\alpha_B q\\Delta\\tau\}\{2D\}/
+  assert.match(solved.equilibriumResult?.code ?? "", /sp\.diff/);
+  assert.equal(
+    solved.researchSession?.assetSummary.equilibriumStatus,
+    "derivation_draft"
   );
-  assert.match(solved.equilibriumResult?.code ?? "", /sp\.solve/);
-  assert.equal(solved.researchSession?.assetSummary.equilibriumStatus, "solved");
   assert.equal(
     solved.researchSession?.assetSummary.pendingDecision?.kind,
-    "analyze_properties"
+    "solve_equilibrium"
   );
-  assert.ok(
-    solved.researchSession?.assetSummary.nextActions.includes("生成性质分析")
-  );
-  assert.match(
-    solved.researchSession?.assetSummary.pendingDecision?.prompt ?? "",
-    /性质分析/
-  );
+  assert.ok(solved.researchSession?.assetSummary.nextActions.length);
   assert.match(
     solved.researchSession?.messages.at(-1)?.content ?? "",
-    /符号均衡/
+    /草稿|draft|求解/
   );
 });
 
@@ -540,7 +514,9 @@ test("recognizes unicode tau decisions as commission controls", () => {
     },
   };
 
-  const solved = generateSymbolicEquilibrium(unicodeTauProject);
+  const solved = generateSymbolicEquilibrium(unicodeTauProject, {
+    acceptDefaultFallbackScope: true,
+  });
 
   assert.equal(solved.equilibriumResult?.status, "solved");
   assert.match(
@@ -571,7 +547,11 @@ test("tracks session decisions from direction discovery to solve readiness", () 
       adopted.researchSession?.phase,
       confirmed.researchSession?.phase,
       generateSymbolicEquilibrium(confirmed).researchSession?.phase,
-      generatePropertyAnalysis(generateSymbolicEquilibrium(confirmed))
+      generatePropertyAnalysis(
+        generateSymbolicEquilibrium(confirmed, {
+          acceptDefaultFallbackScope: true,
+        })
+      )
       .researchSession?.phase,
     ],
     [
@@ -589,14 +569,18 @@ test("tracks session decisions from direction discovery to solve readiness", () 
       confirmed.researchSession?.assetSummary.pendingDecision?.kind,
       generateSymbolicEquilibrium(confirmed).researchSession?.assetSummary
         .pendingDecision?.kind,
-      generatePropertyAnalysis(generateSymbolicEquilibrium(confirmed))
+      generatePropertyAnalysis(
+        generateSymbolicEquilibrium(confirmed, {
+          acceptDefaultFallbackScope: true,
+        })
+      )
         .researchSession?.assetSummary.pendingDecision?.kind,
     ],
     [
       "choose_direction",
       "answer_model_question",
       "solve_equilibrium",
-      "analyze_properties",
+      "solve_equilibrium",
       undefined,
     ]
   );
@@ -643,9 +627,9 @@ test("keeps right-side asset fields populated after generating equilibrium", () 
   assert.equal(asset?.currentDirection?.id, "secondhand-commission-subsidy-hotelling");
   assert.equal(asset?.confirmedAssumptions.length, solved.hotellingModel?.assumptions.length);
   assert.equal(asset?.utilityFunctions.length, solved.hotellingModel?.utilityFunctions.length);
-  assert.equal(asset?.equilibriumStatus, "solved");
-  assert.equal(asset?.pendingDecision?.kind, "analyze_properties");
-  assert.ok(asset?.nextActions.includes("生成性质分析"));
+  assert.equal(asset?.equilibriumStatus, "derivation_draft");
+  assert.equal(asset?.pendingDecision?.kind, "solve_equilibrium");
+  assert.ok(asset?.nextActions.some((action) => /均衡|求解/.test(action)));
   assert.ok(solved.equilibriumResult?.closedForm);
   assert.ok(solved.equilibriumResult?.focs.length);
 });
@@ -660,7 +644,10 @@ test("generates a symbolic property analysis and moves the session into analysis
     project,
     "secondhand-commission-subsidy-hotelling"
   );
-  const equilibriumProject = generateSymbolicEquilibrium(confirmResearchModel(adopted));
+  const equilibriumProject = generateSymbolicEquilibrium(
+    confirmResearchModel(adopted),
+    { acceptDefaultFallbackScope: true }
+  );
 
   const analyzed = generatePropertyAnalysis(equilibriumProject);
 

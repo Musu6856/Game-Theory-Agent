@@ -1,5 +1,6 @@
 import {
   getResearchFlowState,
+  isDraftEquilibriumStatus,
   type ResearchAssetsTab,
 } from "../research-flow.ts";
 import {
@@ -403,11 +404,11 @@ export function recommendNextAgentStep(
     return {
       status: "ready",
       title:
-        project.equilibriumResult?.status === "symbolic_failure"
+        isDraftEquilibriumStatus(project.equilibriumResult?.status)
           ? "重新尝试符号求解"
           : "开始符号求解",
       reason:
-        project.equilibriumResult?.status === "symbolic_failure"
+        isDraftEquilibriumStatus(project.equilibriumResult?.status)
           ? "当前只得到隐式或失败草稿，需要先重新求解或收窄模型。"
           : "模型已经确认，下一步可以生成符号均衡推导。",
       targetTab: "equilibrium",
@@ -415,7 +416,7 @@ export function recommendNextAgentStep(
         kind: "solve_equilibrium",
         agentAction: "solve_equilibrium",
         label:
-          project.equilibriumResult?.status === "symbolic_failure"
+          isDraftEquilibriumStatus(project.equilibriumResult?.status)
             ? "重新尝试符号求解"
             : "开始符号求解",
         description: "生成均衡候选、自检推导质量，并等待审核后写入资产。",
@@ -452,7 +453,7 @@ export function recommendNextAgentStep(
     };
   }
 
-  if (project.equilibriumResult?.status === "symbolic_failure") {
+  if (isDraftEquilibriumStatus(project.equilibriumResult?.status)) {
     return {
       status: "blocked",
       title: "均衡结果需要修订",

@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { generateResearchProject } from "./ai-research-generation.ts";
-import { createExplorationProject } from "./research-session.ts";
+import {
+  createExplorationProject,
+  generateSymbolicEquilibrium,
+} from "./research-session.ts";
 
 async function createModelProject() {
   const project = createExplorationProject({
@@ -56,23 +59,21 @@ test("rejects malformed closed-form equilibrium output instead of presenting it 
   );
 
   assert.equal(result.usedFallback, true);
+  assert.equal(result.project.equilibriumResult?.status, "derivation_draft");
   assert.doesNotMatch(result.project.equilibriumResult?.closedForm ?? "", /p_A\*\*/);
-  assert.match(result.project.equilibriumResult?.closedForm ?? "", /\\tau_A\^\*/);
 });
 
 test("rejects one-off zero property analysis caused by a missing parameter", async () => {
   const modelProject = await createModelProject();
-  const solved = await generateResearchProject({
-    action: "solve_equilibrium",
-    rawIdea: modelProject.rawIdea,
-    project: modelProject,
+  const solvedProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
   });
 
   const result = await generateResearchProject(
     {
       action: "analyze_properties",
-      rawIdea: solved.project.rawIdea,
-      project: solved.project,
+      rawIdea: solvedProject.rawIdea,
+      project: solvedProject,
     },
     {
       complete: async () =>
@@ -106,17 +107,15 @@ test("rejects one-off zero property analysis caused by a missing parameter", asy
 
 test("rejects single provider property analysis even when symbolic", async () => {
   const modelProject = await createModelProject();
-  const solved = await generateResearchProject({
-    action: "solve_equilibrium",
-    rawIdea: modelProject.rawIdea,
-    project: modelProject,
+  const solvedProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
   });
 
   const result = await generateResearchProject(
     {
       action: "analyze_properties",
-      rawIdea: solved.project.rawIdea,
-      project: solved.project,
+      rawIdea: solvedProject.rawIdea,
+      project: solvedProject,
     },
     {
       complete: async () =>
@@ -145,17 +144,15 @@ test("rejects single provider property analysis even when symbolic", async () =>
 
 test("keeps a provider property-analysis bundle instead of truncating to one item", async () => {
   const modelProject = await createModelProject();
-  const solved = await generateResearchProject({
-    action: "solve_equilibrium",
-    rawIdea: modelProject.rawIdea,
-    project: modelProject,
+  const solvedProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
   });
 
   const result = await generateResearchProject(
     {
       action: "analyze_properties",
-      rawIdea: solved.project.rawIdea,
-      project: solved.project,
+      rawIdea: solvedProject.rawIdea,
+      project: solvedProject,
     },
     {
       complete: async () =>

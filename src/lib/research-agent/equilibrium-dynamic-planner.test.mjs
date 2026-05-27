@@ -54,7 +54,9 @@ test("equilibrium dynamic planner asks for review when an equilibrium patch is p
 });
 
 test("equilibrium dynamic planner re-solves when saved SymPy artifacts failed", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {
@@ -85,7 +87,9 @@ test("equilibrium dynamic planner re-solves when saved SymPy artifacts failed", 
 });
 
 test("equilibrium dynamic planner repairs a failed candidate before full re-solve", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {
@@ -121,7 +125,9 @@ test("equilibrium dynamic planner repairs a failed candidate before full re-solv
 });
 
 test("equilibrium dynamic planner routes unsupported math artifacts to manual review", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {
@@ -151,7 +157,9 @@ test("equilibrium dynamic planner routes unsupported math artifacts to manual re
 });
 
 test("equilibrium dynamic planner repairs the model when compiled system is incomplete", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {
@@ -185,7 +193,9 @@ test("equilibrium dynamic planner repairs the model when compiled system is inco
 });
 
 test("equilibrium dynamic planner keeps generated FOC manual review when model objectives exist", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {
@@ -227,7 +237,9 @@ test("equilibrium dynamic planner keeps generated FOC manual review when model o
 });
 
 test("equilibrium dynamic planner repairs the model when manual review shows missing decision variables", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {
@@ -264,7 +276,9 @@ test("equilibrium dynamic planner repairs the model when manual review shows mis
 });
 
 test("equilibrium dynamic planner opens property analysis after solved verified equilibrium", () => {
-  const solved = generateSymbolicEquilibrium(createConfirmedProject());
+  const solved = generateSymbolicEquilibrium(createConfirmedProject(), {
+    acceptDefaultFallbackScope: true,
+  });
   const project = {
     ...solved,
     researchSession: {

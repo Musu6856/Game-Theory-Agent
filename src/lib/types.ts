@@ -141,7 +141,16 @@ export interface HotellingModel {
 }
 
 export interface EquilibriumResult {
-  status: "idle" | "solved" | "needs_revision" | "symbolic_failure";
+  status:
+    | "idle"
+    | "solved"
+    | "needs_revision"
+    | "derivation_draft"
+    | "implicit_system"
+    | "reaction_functions"
+    | "failed_with_reason"
+    | "needs_model_clarification"
+    | "symbolic_failure";
   concept: string;
   solvingSteps: string[];
   focs: string[];
@@ -150,6 +159,22 @@ export interface EquilibriumResult {
   derivation: string;
   code: string;
   warnings: string[];
+  solverScratchpad?: EquilibriumSolverScratchpad;
+}
+
+export interface EquilibriumSolverScratchpad {
+  status?:
+    | "derivation_draft"
+    | "implicit_system"
+    | "reaction_functions"
+    | "failed_with_reason"
+    | "needs_model_clarification"
+    | "symbolic_failure";
+  implicitSystem?: string[];
+  reactionFunctions?: string[];
+  failedWithReason?: string;
+  needsModelClarification?: string[];
+  attemptedSteps?: string[];
 }
 
 export interface PropertyAnalysis {

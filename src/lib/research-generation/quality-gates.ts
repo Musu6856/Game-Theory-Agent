@@ -19,6 +19,14 @@ export function isSymbolicEquilibriumResult(result: EquilibriumResult) {
   if (containsSimulationOnlyText(combined)) return false;
   if (containsMalformedClosedForm(result.closedForm)) return false;
 
+  const draftSignals = [
+    "derivation_draft",
+    "implicit_system",
+    "reaction_functions",
+    "failed_with_reason",
+    "needs_model_clarification",
+    "symbolic_failure",
+  ];
   const symbolicSignals = [
     /\\frac/,
     /\\partial/,
@@ -31,9 +39,14 @@ export function isSymbolicEquilibriumResult(result: EquilibriumResult) {
     /sympy/i,
     /反应函数|无差异|闭式|解析|符号/,
     /R_\{/,
+    /implicit|隐式|F\(.+\)\s*=\s*0/i,
+    /reaction function|反应函数/i,
   ];
 
-  return symbolicSignals.some((pattern) => pattern.test(combined));
+  return (
+    draftSignals.includes(result.status) ||
+    symbolicSignals.some((pattern) => pattern.test(combined))
+  );
 }
 
 export function isSymbolicPropertyAnalysis(analysis: PropertyAnalysis) {

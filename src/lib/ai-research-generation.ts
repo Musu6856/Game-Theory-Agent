@@ -143,7 +143,7 @@ const BUILD_MODEL_REPAIR_SHAPE =
   "{ assistantMessage: string, hotellingModel: { symbols, sides, platforms, timing, utilityFunctions, demandDerivation, profitFunctions, assumptions, modelSetupDraft }, optional selectedDirectionId, refinedIdea, assetSummary }";
 
 const EQUILIBRIUM_REPAIR_SHAPE =
-  "{ assistantMessage: string, equilibriumResult: { status, concept, solvingSteps, focs, conditions, closedForm, derivation, code, warnings } }";
+  "{ assistantMessage: string, equilibriumResult: { status: solved | derivation_draft | implicit_system | reaction_functions | failed_with_reason | needs_model_clarification | symbolic_failure, concept, solvingSteps, focs, conditions, closedForm, derivation, code, warnings, optional solverScratchpad } }";
 
 const PROPERTY_ANALYSIS_REPAIR_SHAPE =
   "{ assistantMessage: string, propertyAnalyses: Array<3 to 5 symbolic analyses with id,target,parameter,operation,symbolicResult,signCondition,propositionDraft,proofSketch,intuition,warnings> }";
@@ -477,13 +477,12 @@ function validateEquilibriumCompletion(
   const assistantMessage = parseText(payload.assistantMessage);
   if (
     !equilibriumResult ||
-    equilibriumResult.status !== "solved" ||
     !assistantMessage
   ) {
     return {
       ok: false,
       reason:
-        "response must include assistantMessage and a solved symbolic equilibriumResult with closed-form or reaction-function solution, not numeric output or a symbolic-failure draft",
+        "response must include assistantMessage and a symbolic equilibriumResult or derivation draft, not numeric output",
     };
   }
 

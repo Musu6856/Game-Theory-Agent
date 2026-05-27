@@ -223,7 +223,8 @@ export function getCurrentResearchDirectionId(
 }
 
 export function generateSymbolicEquilibrium(
-  project: ResearchProject
+  project: ResearchProject,
+  options: { acceptDefaultFallbackScope?: boolean } = {}
 ): ResearchProject {
   const session =
     project.researchSession ?? createInitialResearchSession(project.rawIdea);
@@ -243,13 +244,14 @@ export function generateSymbolicEquilibrium(
     {
       id: `msg-equilibrium-solved-${Date.now()}`,
       role: "assistant",
-      content:
-        "我先给出一版可写入论文推导的符号均衡资产：从两侧无差异条件得到需求份额，再把需求代入平台利润函数，并在对称内部候选均衡下联立一阶条件得到佣金与补贴的闭式解。右侧会停在均衡页，方便先检查闭式解、一阶条件和存在条件；确认可用后再进入性质分析。若后续模型加入非对称平台或更多状态变量，应继续做一般符号求解，而不是改用数值模拟。",
+      content: options.acceptDefaultFallbackScope
+        ? "我先给出一版限定在默认佣金-补贴 Hotelling 核心内的符号均衡资产：从两侧无差异条件得到需求份额，再把需求代入平台利润函数，并在对称内部候选均衡下联立一阶条件得到佣金与补贴的闭式解。"
+        : "我先保留一版本地符号求解草稿：它会列出当前模型的一阶条件、约束和可继续求解的方向，但不会把默认对称 Hotelling 闭式解直接当作正式均衡。",
       createdAt: 0,
     },
   ];
 
-  return applySymbolicEquilibriumResult(project, session, messages);
+  return applySymbolicEquilibriumResult(project, session, messages, options);
 }
 
 export function generatePropertyAnalysis(project: ResearchProject): ResearchProject {
@@ -310,10 +312,15 @@ export function generatePropertyAnalysis(project: ResearchProject): ResearchProj
 function applySymbolicEquilibriumResult(
   project: ResearchProject,
   session: ResearchSession,
-  messages: ResearchSessionMessage[]
+  messages: ResearchSessionMessage[],
+  options: { acceptDefaultFallbackScope?: boolean } = {}
 ): ResearchProject {
   const direction = getActiveDirection(session);
-  const equilibriumResult = createEquilibriumFallbackForProject(project, direction);
+  const equilibriumResult = createEquilibriumFallbackForProject(
+    project,
+    direction,
+    options
+  );
   const hasSolvedEquilibrium = equilibriumResult.status === "solved";
 
   return {
@@ -387,7 +394,7 @@ export function normalizeResearchProjectForWorkspace(
 
   if (
     session &&
-    workspaceProject.equilibriumResult?.status === "symbolic_failure" &&
+    isEquilibriumDraftStatus(workspaceProject.equilibriumResult?.status) &&
     (session.phase !== "equilibrium" ||
       session.assetSummary.pendingDecision?.kind === "analyze_properties")
   ) {
@@ -398,7 +405,7 @@ export function normalizeResearchProjectForWorkspace(
         phase: "equilibrium",
         assetSummary: {
           ...session.assetSummary,
-          equilibriumStatus: "symbolic_failure",
+          equilibriumStatus: workspaceProject.equilibriumResult.status,
           pendingDecision: {
             kind: "solve_equilibrium",
             prompt:
@@ -427,6 +434,17 @@ function normalizeProjectSymbols(project: ResearchProject): ResearchProject {
       symbols: normalizeSymbolRegistry(project.hotellingModel.symbols),
     },
   };
+}
+
+function isEquilibriumDraftStatus(status?: EquilibriumResult["status"]) {
+  return (
+    status === "derivation_draft" ||
+    status === "implicit_system" ||
+    status === "reaction_functions" ||
+    status === "failed_with_reason" ||
+    status === "needs_model_clarification" ||
+    status === "symbolic_failure"
+  );
 }
 
 function normalizeDirectionMatchText(value: string | undefined) {
@@ -798,35 +816,46 @@ function createFallbackModelForDirection(
 }
 
 function createEquilibriumFallbackForDirection(
-  direction?: ResearchDirection
+  direction?: ResearchDirection,
+  options: { acceptDefaultFallbackScope?: boolean } = {}
 ): EquilibriumResult {
   if (!direction || direction.id === DEFAULT_ID) {
-    return createSymbolicHotellingFallbackResult();
+    return options.acceptDefaultFallbackScope
+      ? createSymbolicHotellingFallbackResult()
+      : createDefaultHotellingDiagnosticDraft(direction);
   }
 
   if (isSellerMultihomingDirection(direction)) {
-    return createSellerMultihomingEquilibriumFallback();
+    return createDirectionDiagnosticDraft(direction);
   }
 
-  return createGenericDirectionSpecificEquilibriumFallback(direction);
+  return createDirectionDiagnosticDraft(direction);
 }
 
 function createEquilibriumFallbackForProject(
   project: ResearchProject,
-  direction?: ResearchDirection
+  direction?: ResearchDirection,
+  options: { acceptDefaultFallbackScope?: boolean } = {}
 ): EquilibriumResult {
   const model = project.hotellingModel;
 
   if (!model) {
-    return createEquilibriumFallbackForDirection(direction);
+    return createEquilibriumFallbackForDirection(direction, options);
   }
 
-  if (isSellerMultihomingDirection(direction)) {
-    return createSellerMultihomingEquilibriumFallback();
+  if (!options.acceptDefaultFallbackScope) {
+    return createModelGroundedEquilibriumFallback(
+      model,
+      direction,
+      "derivation_draft"
+    );
   }
 
-  if (isDefaultCommissionSubsidyDecisionCore(model)) {
-    return createEquilibriumFallbackForDirection(direction);
+  if (
+    isDefaultCommissionSubsidyDecisionCore(model) &&
+    (!direction || direction.id === DEFAULT_ID)
+  ) {
+    return createEquilibriumFallbackForDirection(direction, options);
   }
 
   return createModelGroundedEquilibriumFallback(model, direction);
@@ -835,7 +864,14 @@ function createEquilibriumFallbackForProject(
 function createModelGroundedEquilibriumFallback(
   model: HotellingModel,
   direction?: ResearchDirection,
-  status: "needs_revision" | "symbolic_failure" = "symbolic_failure"
+  status:
+    | "needs_revision"
+    | "symbolic_failure"
+    | "derivation_draft"
+    | "implicit_system"
+    | "reaction_functions"
+    | "failed_with_reason"
+    | "needs_model_clarification" = "symbolic_failure"
 ): EquilibriumResult {
   const decisions = collectStrategicDecisionSymbols(model);
   const decisionText = decisions.length > 0 ? decisions.join(", ") : "current platform decisions";
@@ -1391,6 +1427,69 @@ function createSymbolicEquilibriumScaffold(
   }
 
   return createSymbolicEquilibriumScaffoldResult();
+}
+
+function createDefaultHotellingDiagnosticDraft(
+  direction?: ResearchDirection
+): EquilibriumResult {
+  const draft = createSymbolicEquilibriumScaffold(direction);
+
+  return {
+    ...draft,
+    status: "derivation_draft",
+    concept: "默认 Hotelling 闭式解的本地诊断草稿",
+    closedForm:
+      "本地 fallback 不再自动写入默认 $n_A^{B*}=n_A^{S*}=1/2$ 闭式解；需要显式接受默认佣金-补贴 Hotelling 范围后才可作为演示闭式资产。",
+    derivation:
+      `${draft.derivation}\n\nStage 2 限制：本地 fallback 只保留求解路线和诊断说明，避免在模型服务失败时把对称 $1/2$ 结果误写成正式均衡。`,
+    warnings: [
+      "这是本地 fallback 诊断草稿，不是正式 solved 均衡。",
+      "默认对称 $1/2$ 闭式解只有在显式接受默认佣金-补贴 Hotelling 范围时才可作为演示资产。",
+      ...draft.warnings,
+    ],
+    solverScratchpad: {
+      status: "derivation_draft",
+      failedWithReason:
+        "本地 fallback 不能证明当前模型等同于默认对称佣金-补贴 Hotelling 核心。",
+      attemptedSteps: draft.solvingSteps,
+      needsModelClarification: [
+        "确认是否接受默认两平台、两侧单归属、佣金与补贴核心。",
+        "确认是否允许把专属机制变量排除在一阶条件之外。",
+      ],
+    },
+  };
+}
+
+function createDirectionDiagnosticDraft(
+  direction: ResearchDirection | undefined
+): EquilibriumResult {
+  const title = direction?.title ?? "当前研究方向";
+  const draft = createSymbolicEquilibriumScaffold(direction);
+
+  return {
+    ...draft,
+    status: "derivation_draft",
+    concept: `${title} 的本地 fallback 诊断草稿`,
+    closedForm:
+      "本地 fallback 不生成正式闭式均衡；当前只保留与方向相关的求解路线、机制变量和待补条件。",
+    derivation:
+      `${draft.derivation}\n\nStage 2 限制：该研究方向包含可能改变一阶条件或边界条件的机制内容，本地 fallback 不会用默认 $1/2$ 对称 Hotelling 解替代真实求解。`,
+    warnings: [
+      "这是方向绑定的 fallback 诊断草稿，不是正式 solved 均衡。",
+      "请继续补齐机制方程、利润函数、约束和二阶/边界条件后再求解。",
+      ...draft.warnings,
+    ],
+    solverScratchpad: {
+      status: "derivation_draft",
+      failedWithReason:
+        "本地 fallback 不能证明方向专属机制已被纳入均衡一阶条件。",
+      attemptedSteps: draft.solvingSteps,
+      needsModelClarification: [
+        "补齐机制变量如何进入效用、需求或利润。",
+        "确认边界/KKT 条件和可求解的闭式或隐式系统。",
+      ],
+    },
+  };
 }
 
 export function createModelAwareEquilibriumScaffoldResult(

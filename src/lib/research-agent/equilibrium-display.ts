@@ -34,6 +34,11 @@ const EQUILIBRIUM_STATUSES = new Set<EquilibriumResult["status"]>([
   "idle",
   "solved",
   "needs_revision",
+  "derivation_draft",
+  "implicit_system",
+  "reaction_functions",
+  "failed_with_reason",
+  "needs_model_clarification",
   "symbolic_failure",
 ]);
 

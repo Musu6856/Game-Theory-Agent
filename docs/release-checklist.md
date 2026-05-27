@@ -65,13 +65,16 @@ Release readiness can also be checked from code via `buildReleaseReadinessReport
 - [ ] Continue to symbolic equilibrium and confirm an equilibrium patch appears.
 - [ ] Continue to property analysis and confirm property patches appear.
 - [ ] Continue to paper output and confirm paper or section-level paper patches appear.
+- [ ] Open the paper preview and confirm display math blocks render as formulas, not as nested or broken inline math.
 - [ ] Export project audit Markdown and confirm it contains sources, Agent trace, pending/applied patches, version history, math summary, and paper review context.
 
 ## 4. Safety Checks
 
 - [ ] Pending model/equilibrium/property/paper patches block automatic continuation until reviewed.
 - [ ] Failed math verification is not displayed as passed.
+- [ ] Math verification states are actionable: 需修正 explains that the user should return to model/equilibrium/properties and generate a reviewable fix; 条件不足 explains which assumptions to add; 人工复核 explains that the user should inspect skipped or unsupported checks before continuing.
 - [ ] Unsupported math verification is displayed as 人工复核 or 暂不支持, not as proof.
+- [ ] The math verification panel merges persisted `researchSession.mathVerificationChecks` from async/SymPy runs into the visible summary.
 - [ ] Refreshing during or after an Agent run does not lose saved project data.
 - [ ] Retrying an Agent run does not duplicate an already proposed patch.
 - [ ] The protected worker route rejects missing/wrong secrets and accepts `GET` with a valid worker secret.

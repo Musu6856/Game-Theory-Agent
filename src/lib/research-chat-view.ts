@@ -45,16 +45,6 @@ function hideSupersededAgentProviderDrafts(
   messages: ResearchSessionMessage[]
 ): ResearchSessionMessage[] {
   return messages.filter((message, index) => {
-    if (isEquilibriumProviderDraft(message)) {
-      return !hasLaterMessage(
-        messages,
-        index,
-        (laterMessage) =>
-          laterMessage.role === "assistant" &&
-          laterMessage.id.startsWith("msg-equilibrium-agent-review-")
-      );
-    }
-
     if (isPropertyProviderDraft(message)) {
       return !hasLaterMessage(
         messages,
@@ -86,13 +76,6 @@ function hasLaterMessage(
   predicate: (message: ResearchSessionMessage) => boolean
 ) {
   return messages.slice(currentIndex + 1).some(predicate);
-}
-
-function isEquilibriumProviderDraft(message: ResearchSessionMessage) {
-  return (
-    message.role === "assistant" &&
-    message.id.startsWith("msg-equilibrium-provider-")
-  );
 }
 
 function isPropertyProviderDraft(message: ResearchSessionMessage) {

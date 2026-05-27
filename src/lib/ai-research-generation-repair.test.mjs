@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { generateResearchProject } from "./ai-research-generation.ts";
-import { createExplorationProject } from "./research-session.ts";
+import {
+  createExplorationProject,
+  generateSymbolicEquilibrium,
+} from "./research-session.ts";
 
 function createBaseProject() {
   return createExplorationProject({
@@ -225,14 +228,9 @@ test("analyze_properties retries once when the provider returns fewer than three
       complete: async () => "{",
     }
   );
-  const { project: equilibriumProject } = await generateResearchProject(
-    {
-      action: "solve_equilibrium",
-      rawIdea: modelProject.rawIdea,
-      project: modelProject,
-    },
-    {}
-  );
+  const equilibriumProject = generateSymbolicEquilibrium(modelProject, {
+    acceptDefaultFallbackScope: true,
+  });
   const prompts = [];
 
   const result = await generateResearchProject(

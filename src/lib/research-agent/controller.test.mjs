@@ -48,7 +48,8 @@ test("controller distinguishes quick paper review from high attention asset revi
             }),
             "secondhand-commission-subsidy-hotelling"
           )
-        )
+        ),
+        { acceptDefaultFallbackScope: true }
       )
     ),
     "paper"
@@ -118,17 +119,18 @@ test("controller recommends symbolic solving after model confirmation", () => {
 
 test("controller recommends property analysis after solved equilibrium", () => {
   const project = generateSymbolicEquilibrium(
-    confirmResearchModel(
-      adoptResearchDirection(
-        createExplorationProject({
-          id: "11111111-1111-4111-8111-111111111111",
-          rawIdea: "研究二手平台佣金与补贴策略",
-          now: 1710000000000,
-        }),
-        "secondhand-commission-subsidy-hotelling"
-      )
-    )
-  );
+      confirmResearchModel(
+        adoptResearchDirection(
+          createExplorationProject({
+            id: "11111111-1111-4111-8111-111111111111",
+            rawIdea: "研究二手平台佣金与补贴策略",
+            now: 1710000000000,
+          }),
+          "secondhand-commission-subsidy-hotelling"
+        )
+      ),
+      { acceptDefaultFallbackScope: true }
+    );
 
   const recommendation = recommendNextAgentStep(project);
 
@@ -141,18 +143,19 @@ test("controller recommends property analysis after solved equilibrium", () => {
 test("controller recommends paper drafting after stable property analysis", () => {
   const project = generatePropertyAnalysis(
     generateSymbolicEquilibrium(
-      confirmResearchModel(
-        adoptResearchDirection(
-          createExplorationProject({
-            id: "11111111-1111-4111-8111-111111111111",
-            rawIdea: "研究二手平台佣金与补贴策略",
-            now: 1710000000000,
-          }),
-          "secondhand-commission-subsidy-hotelling"
-        )
+        confirmResearchModel(
+          adoptResearchDirection(
+            createExplorationProject({
+              id: "11111111-1111-4111-8111-111111111111",
+              rawIdea: "研究二手平台佣金与补贴策略",
+              now: 1710000000000,
+            }),
+            "secondhand-commission-subsidy-hotelling"
+          )
+        ),
+        { acceptDefaultFallbackScope: true }
       )
-    )
-  );
+    );
 
   const recommendation = recommendNextAgentStep(project);
 
@@ -165,18 +168,19 @@ test("controller recommends paper drafting after stable property analysis", () =
 test("controller recommends redoing stale property analysis", () => {
   const analyzed = generatePropertyAnalysis(
     generateSymbolicEquilibrium(
-      confirmResearchModel(
-        adoptResearchDirection(
-          createExplorationProject({
-            id: "11111111-1111-4111-8111-111111111111",
-            rawIdea: "研究二手平台佣金与补贴策略",
-            now: 1710000000000,
-          }),
-          "secondhand-commission-subsidy-hotelling"
-        )
+        confirmResearchModel(
+          adoptResearchDirection(
+            createExplorationProject({
+              id: "11111111-1111-4111-8111-111111111111",
+              rawIdea: "研究二手平台佣金与补贴策略",
+              now: 1710000000000,
+            }),
+            "secondhand-commission-subsidy-hotelling"
+          )
+        ),
+        { acceptDefaultFallbackScope: true }
       )
-    )
-  );
+    );
   const staleProperties = {
     ...analyzed,
     researchSession: {
@@ -202,18 +206,19 @@ test("controller marks the current loop complete after paper sections exist", ()
   const project = {
     ...generatePropertyAnalysis(
       generateSymbolicEquilibrium(
-        confirmResearchModel(
-          adoptResearchDirection(
-            createExplorationProject({
-              id: "11111111-1111-4111-8111-111111111111",
-              rawIdea: "研究二手平台佣金与补贴策略",
-              now: 1710000000000,
-            }),
-            "secondhand-commission-subsidy-hotelling"
-          )
+          confirmResearchModel(
+            adoptResearchDirection(
+              createExplorationProject({
+                id: "11111111-1111-4111-8111-111111111111",
+                rawIdea: "研究二手平台佣金与补贴策略",
+                now: 1710000000000,
+              }),
+              "secondhand-commission-subsidy-hotelling"
+            )
+          ),
+          { acceptDefaultFallbackScope: true }
         )
-      )
-    ),
+      ),
     sections: [
       {
         id: "introduction",
@@ -323,7 +328,8 @@ test("safe continuation plans the later one-step runs to the next review point",
         }),
         "secondhand-commission-subsidy-hotelling"
       )
-    )
+    ),
+    { acceptDefaultFallbackScope: true }
   );
   const analyzed = generatePropertyAnalysis(solved);
 
