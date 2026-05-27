@@ -419,6 +419,22 @@ test("SymPy equilibrium review records generated model-profit FOC artifacts", as
     objectives: [{ expression: "alpha_B*tau_A - tau_A^2", variable: "tau_A" }],
     compiledSystemId: compiledSystemArtifact?.id,
   });
+  assert.equal(compiledSystemArtifact?.output?.solverVersion, "v3");
+  assert.deepEqual(
+    compiledSystemArtifact?.output?.strategyPlan?.map((item) => item.strategy),
+    [
+      "linear_system",
+      "reaction_functions",
+      "explicit_foc_solve",
+      "residual_substitution",
+      "implicit_system_fallback",
+    ]
+  );
+  assert.ok(
+    compiledSystemArtifact?.output?.optimalityObligations?.some(
+      (obligation) => obligation.kind === "second_order"
+    )
+  );
   assert.deepEqual(solverAttemptArtifact?.input, {
     residuals: ["alpha_B - 2*tau_A"],
     variables: ["tau_A"],

@@ -264,19 +264,29 @@ The main risk is therefore not just "cannot solve." It is "looks solved after si
 
 **Tasks:**
 
-- [ ] Compile model assets into executable equations instead of relying mainly on generated LaTeX text.
-- [ ] Separate players, strategic variables, state/demand variables, parameters, constraints, and timing.
-- [ ] Generate FOCs from structured profit functions when safe.
-- [ ] Generate second derivatives, Hessians, and KKT/boundary conditions when safe.
-- [ ] Try multiple bounded solving strategies: linear systems, reaction functions, explicit FOC solve, residual substitution, and implicit-system fallback.
-- [ ] Classify failures as model gap, unsupported expression, condition insufficiency, SOC/Hessian failure, boundary/multiple-equilibrium issue, or solver timeout.
-- [ ] Keep arbitrary model-generated Python code forbidden.
+- [x] Compile model assets into executable equations instead of relying mainly on generated LaTeX text.
+- [x] Separate players, strategic variables, state/demand variables, parameters, constraints, and timing.
+- [x] Generate FOCs from structured profit functions when safe.
+- [x] Generate second derivatives, Hessians, and KKT/boundary conditions when safe.
+- [x] Try multiple bounded solving strategies: linear systems, reaction functions, explicit FOC solve, residual substitution, and implicit-system fallback.
+- [x] Classify failures as model gap, unsupported expression, condition insufficiency, SOC/Hessian failure, boundary/multiple-equilibrium issue, or solver timeout.
+- [x] Keep arbitrary model-generated Python code forbidden.
 
 **Acceptance checks:**
 
-- [ ] Solver v3 improves benchmark outcomes without reintroducing pretty solved fallbacks.
-- [ ] Every failed solve has a user-readable reason and a next action.
-- [ ] Every successful solve has residual, coverage, and optimality evidence tied to the confirmed model.
+- [x] Solver v3 improves benchmark outcomes without reintroducing pretty solved fallbacks.
+- [x] Every failed solve has a user-readable reason and a next action.
+- [x] Every successful solve has residual, coverage, and optimality evidence tied to the confirmed model.
+
+**Stage 6 evidence, 2026-05-27:**
+
+- Added `src/lib/research-agent/equilibrium-solver-v3.ts` and tests for structured compilation of players, variables, parameters, constraints, timing, safe FOC generation, strategy planning, Hessian/KKT obligations, model gaps, and unsupported expressions.
+- `compiled_game_system` artifacts now include `solverVersion: "v3"`, player separation, constraints, timing, generated FOC system, optimality obligations, strategy plan, and preflight failure classification while preserving the existing fields consumed by the solver kernel.
+- Solver v3 currently provides bounded compilation and strategy metadata; it still relies on the existing safe SymPy wrappers and does not execute arbitrary model-generated Python.
+
+**Verification run, 2026-05-27:**
+
+- `node --test src\lib\research-agent\equilibrium-solver-v3.test.mjs src\lib\research-agent\sympy-equilibrium-review.test.mjs`
 
 ### Stage 7: Reconnect Property Analysis And Paper Output
 

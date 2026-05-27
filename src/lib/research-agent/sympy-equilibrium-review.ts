@@ -19,6 +19,7 @@ import {
   type SympySolveCheckRequest,
   type SympySolveCheckResult,
 } from "./sympy-checker.ts";
+import { compileEquilibriumSolverV3System } from "./equilibrium-solver-v3.ts";
 
 export type SympyResidualChecker = (
   request: SympyResidualCheckRequest
@@ -68,6 +69,10 @@ export async function reviewEquilibriumWithSympy({
     model,
     candidateVariables
   );
+  const solverV3System = compileEquilibriumSolverV3System({
+    model,
+    candidateVariables,
+  });
   const variables = compiledSystem.variables;
   const missingCandidateVariables =
     compiledSystem.modelDecisionVariables.filter(
@@ -99,7 +104,18 @@ export async function reviewEquilibriumWithSympy({
         modelAvailable: Boolean(model),
         candidateVariables,
       },
-      output: compiledSystem,
+      output: {
+        ...compiledSystem,
+        solverVersion: "v3",
+        players: solverV3System.players,
+        stateVariables: solverV3System.stateVariables,
+        constraints: solverV3System.constraints,
+        timing: solverV3System.timing,
+        generatedFocSystem: solverV3System.generatedFocSystem,
+        optimalityObligations: solverV3System.optimalityObligations,
+        strategyPlan: solverV3System.strategyPlan,
+        failure: solverV3System.failure,
+      },
       issues: compiledSystem.issues,
     }),
     createMathArtifact({
