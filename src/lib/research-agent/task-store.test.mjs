@@ -16,6 +16,7 @@ import {
   listLocalClaimableAgentTasks,
   listLocalAgentTasksForProject,
   renewLocalAgentTaskLease,
+  runTaskDbOperationWithRetry,
 } from "./task-store.ts";
 
 test("local agent task store creates and claims a durable task envelope", () => {
@@ -354,6 +355,44 @@ test("agent task store local fallback derives a lease deadline from a duration",
 
   assert.equal(claimed?.status, "running");
   assert.equal(claimed?.leaseUntil, 1710000061000);
+});
+
+test("agent task DB retry helper retries transient Neon fetch failures", async () => {
+  let attempts = 0;
+
+  const result = await runTaskDbOperationWithRetry(
+    async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw new Error("Failed query", {
+          cause: new Error("Error connecting to database: TypeError: fetch failed"),
+        });
+      }
+      return "ok";
+    },
+    { retryDelaysMs: [0, 0] }
+  );
+
+  assert.equal(result, "ok");
+  assert.equal(attempts, 3);
+});
+
+test("agent task DB retry helper does not retry non-transient failures", async () => {
+  let attempts = 0;
+
+  await assert.rejects(
+    () =>
+      runTaskDbOperationWithRetry(
+        async () => {
+          attempts += 1;
+          throw new Error("violates check constraint");
+        },
+        { retryDelaysMs: [0, 0] }
+      ),
+    /violates check constraint/
+  );
+
+  assert.equal(attempts, 1);
 });
 
 test("local agent task store renews only the current worker lease", () => {

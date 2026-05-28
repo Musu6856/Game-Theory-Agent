@@ -246,6 +246,12 @@ export type ResearchAssetPatchStatus = "proposed" | "applied" | "rejected";
 
 export type ResearchAssetFreshness = "fresh" | "stale";
 
+export type ResearchAssetReviewRisk =
+  | "none"
+  | "manual_review"
+  | "coverage_blocked"
+  | "optimality_incomplete";
+
 export interface ResearchAssetFreshnessMap {
   model: ResearchAssetFreshness;
   equilibrium: ResearchAssetFreshness;
@@ -258,6 +264,7 @@ export interface ResearchAssetChange {
   value?: unknown;
   previousValue?: unknown;
   note?: string;
+  reviewRisk?: ResearchAssetReviewRisk;
 }
 
 export interface ResearchAssetPatch {

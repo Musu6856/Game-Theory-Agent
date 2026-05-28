@@ -734,6 +734,110 @@ test("model generation narrows unresolved mechanism functions before storing ass
   assert.match(result.assistantMessage, /最小可求解|可求解模型/);
 });
 
+test("model generation does not keep floating exclusion multihoming symbols outside equations", async () => {
+  const project = createExplorationProject({
+    id: "11111111-1111-4111-8111-111111111111",
+    rawIdea: "外卖平台排他性协议与多归属",
+    now: 1710000000000,
+  });
+  const floatingMechanismModel = {
+    symbols: [
+      {
+        id: "a-d3",
+        symbol: "a_d3",
+        baseSymbol: "a",
+        subscript: "d3",
+        codeName: "a_d3",
+        name: "排他协议与多归属机制强度",
+        meaning: "平台排他性协议和商家多归属摩擦的机制占位符。",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= a_d3 <= 1",
+        recommended: true,
+      },
+    ],
+    sides: {
+      consumerSideName: "消费者",
+      merchantSideName: "商家",
+    },
+    platforms: ["A", "B"],
+    timing: [
+      {
+        id: "stage-pricing",
+        order: 1,
+        name: "平台选择佣金和补贴",
+        decisions: ["\\tau_A", "\\tau_B", "s_A", "s_B"],
+      },
+    ],
+    utilityFunctions: [
+      {
+        id: "u-buyer-a",
+        side: "consumer",
+        platform: "A",
+        expression: "U_A^B = v_B + s_A - t_B x",
+        notes: "消费者效用没有写入 a_d3。",
+      },
+      {
+        id: "u-seller-a",
+        side: "merchant",
+        platform: "A",
+        expression: "U_A^S = v_S - \\tau_A q - t_S y",
+        notes: "商家效用没有写入 a_d3。",
+      },
+    ],
+    demandDerivation:
+      "需求份额由买家和商家无差异条件推出；这里只在文字里提到排他协议和多归属。",
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression: "\\Pi_A = \\tau_A q n_A^S n_A^B - s_A n_A^B",
+        notes: "利润函数没有写入 a_d3。",
+      },
+      {
+        id: "profit-b",
+        platform: "B",
+        expression: "\\Pi_B = \\tau_B q n_B^S n_B^B - s_B n_B^B",
+        notes: "利润函数没有写入 a_d3。",
+      },
+    ],
+    assumptions: [
+      "平台位于 Hotelling 线段两端。",
+      "排他协议与多归属机制暂时被写成 a_d3 占位符。",
+    ],
+    modelSetupDraft:
+      "研究外卖平台排他性协议与多归属，但 a_d3 没有进入效用、需求或利润方程。",
+  };
+
+  const result = await generateResearchProject(
+    {
+      action: "build_model",
+      rawIdea: project.rawIdea,
+      selectedDirectionId: "seller-multihoming-pricing",
+      project,
+    },
+    {
+      complete: async () =>
+        JSON.stringify({
+          assistantMessage: "我生成了排他协议与多归属模型。",
+          hotellingModel: floatingMechanismModel,
+        }),
+    }
+  );
+  const storedModelText = [
+    ...(result.project.hotellingModel?.symbols.map((entry) => entry.codeName) ?? []),
+    result.project.hotellingModel?.modelSetupDraft,
+    result.project.hotellingModel?.demandDerivation,
+    ...(result.project.hotellingModel?.utilityFunctions.map((entry) => entry.expression) ?? []),
+    ...(result.project.hotellingModel?.profitFunctions.map((entry) => entry.expression) ?? []),
+  ].join("\n");
+
+  assert.equal(result.usedFallback, false);
+  assert.doesNotMatch(storedModelText, /a_d3/);
+  assert.match(storedModelText, /多归属|multihoming|m_\{AB\}|m_AB|\\kappa/);
+  assert.match(result.assistantMessage, /可求解|模型|机制/);
+});
+
 test("successful model generation populates right-side asset fields from the model", async () => {
   const project = createExplorationProject({
     id: "11111111-1111-4111-8111-111111111111",

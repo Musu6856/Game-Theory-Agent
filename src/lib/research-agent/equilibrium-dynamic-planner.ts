@@ -166,6 +166,7 @@ function isEquilibriumArtifact(artifact: ResearchMathArtifact) {
   return (
     artifact.kind === "equilibrium_candidate" ||
     artifact.kind === "compiled_game_system" ||
+    artifact.kind === "model_coverage_check" ||
     artifact.kind === "closed_form_substitutions" ||
     artifact.kind === "foc_residuals" ||
     artifact.kind === "generated_foc_system" ||
@@ -212,10 +213,15 @@ function hasCompiledObjectives(artifact: ResearchMathArtifact) {
 
 function isModelRepairArtifact(artifact: ResearchMathArtifact) {
   if (
+    artifact.kind !== "model_coverage_check" &&
     artifact.kind !== "compiled_game_system" &&
     artifact.kind !== "generated_foc_system"
   ) {
     return false;
+  }
+
+  if (artifact.kind === "model_coverage_check") {
+    return artifact.status === "failed";
   }
 
   if (

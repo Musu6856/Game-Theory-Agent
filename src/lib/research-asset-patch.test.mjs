@@ -59,3 +59,27 @@ test("rejected research asset patches keep audit data", () => {
   assert.deepEqual(rejected.changes, patch.changes);
   assert.deepEqual(validateResearchAssetPatch(rejected), rejected);
 });
+
+test("research asset patch changes keep structured review risk metadata", () => {
+  const patch = createResearchAssetPatch({
+    id: "patch-3",
+    kind: "equilibrium",
+    summary: "review coverage-blocked equilibrium candidate",
+    createdAt: 1710000000000,
+    changes: [
+      {
+        kind: "replace",
+        path: "equilibriumResult",
+        value: { status: "solved" },
+        note: "Coverage/manual review required.",
+        reviewRisk: "coverage_blocked",
+      },
+    ],
+  });
+
+  assert.equal(patch.changes[0].reviewRisk, "coverage_blocked");
+  assert.equal(
+    validateResearchAssetPatch(patch)?.changes[0].reviewRisk,
+    "coverage_blocked"
+  );
+});

@@ -117,6 +117,125 @@ test("controller recommends symbolic solving after model confirmation", () => {
   assert.equal(recommendation.targetTab, "equilibrium");
 });
 
+test("controller recommends model repair when an equilibrium draft has already stalled", () => {
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(
+      createExplorationProject({
+        id: "11111111-1111-4111-8111-111111111111",
+        rawIdea: "鐮旂┒澶栧崠骞冲彴鎺掍粬鍗忚",
+        now: 1710000000000,
+      }),
+      "seller-multihoming-pricing"
+    )
+  );
+  const stalledDraft = {
+    ...confirmed,
+    equilibriumResult: {
+      status: "derivation_draft",
+      concept: "FOC 草稿",
+      solvingSteps: ["列出一阶条件"],
+      focs: ["\\partial \\Pi_A / \\partial s_A = 0"],
+      conditions: ["需要二阶条件"],
+      closedForm: "尚未得到闭式均衡解。",
+      derivation: "只得到 FOC，缺少二阶/Hessian/KKT。",
+      code: "",
+      warnings: ["不能进入性质分析"],
+    },
+    researchSession: {
+      ...confirmed.researchSession,
+      phase: "equilibrium",
+      assetSummary: {
+        ...confirmed.researchSession.assetSummary,
+        equilibriumStatus: "derivation_draft",
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "需要补充二阶条件、Hessian 或边界/KKT 后再求解。",
+        },
+      },
+    },
+  };
+
+  const recommendation = recommendNextAgentStep(stalledDraft);
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.action?.kind, "answer_model_question");
+  assert.equal(recommendation.action?.agentAction, "build_model");
+  assert.equal(recommendation.targetTab, "model");
+  assert.match(recommendation.reason, /二阶|Hessian|KKT|模型/);
+});
+
+test("controller routes model-coverage draft loops to model repair instead of blind re-solve", () => {
+  const confirmed = confirmResearchModel(
+    adoptResearchDirection(
+      createExplorationProject({
+        id: "11111111-1111-4111-8111-111111111111",
+        rawIdea: "外卖平台排他性协议与多归属",
+        now: 1710000000000,
+      }),
+      "seller-multihoming-pricing"
+    )
+  );
+  const project = {
+    ...confirmed,
+    equilibriumResult: {
+      status: "derivation_draft",
+      concept: "FOC draft",
+      solvingSteps: ["Provider fallback only produced a draft."],
+      focs: ["partial Pi_A / partial tau_A = 0"],
+      conditions: ["Needs model coverage review."],
+      closedForm: "No closed form.",
+      derivation: "The candidate omitted a_d3 and multihoming mechanisms.",
+      code: "",
+      warnings: ["Coverage/manual review required."],
+    },
+    researchSession: {
+      ...confirmed.researchSession,
+      phase: "equilibrium",
+      assetSummary: {
+        ...confirmed.researchSession.assetSummary,
+        equilibriumStatus: "derivation_draft",
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "Repeated fallback draft needs model repair.",
+        },
+      },
+      mathArtifacts: [
+        {
+          id: "coverage-blocker",
+          runId: "agent-equilibrium-coverage",
+          stepId: "review-equilibrium",
+          kind: "model_coverage_check",
+          title: "Model coverage check",
+          status: "failed",
+          source: "model",
+          input: { mechanismTerms: ["a_d3"] },
+          output: {
+            omittedHighValueMechanisms: [
+              { symbol: "a_d3", label: "multihoming", mechanism: "multihoming" },
+            ],
+            suspiciousSimplification: true,
+          },
+          issues: [
+            "The derivation omits high-value model mechanisms: a_d3 (multihoming).",
+          ],
+          createdAt: 1710000001000,
+        },
+      ],
+    },
+  };
+
+  const recommendation = recommendNextAgentStep(project);
+  const continuation = planSafeContinuation(project);
+
+  assert.equal(recommendation.status, "ready");
+  assert.equal(recommendation.action?.kind, "answer_model_question");
+  assert.equal(recommendation.action?.agentAction, "build_model");
+  assert.equal(recommendation.targetTab, "model");
+  assert.match(recommendation.reason, /模型|model|coverage|机制|变量/i);
+  assert.equal(continuation.status, "blocked");
+  assert.equal(continuation.stopReason, "manual_choice_required");
+});
+
 test("controller recommends property analysis after solved equilibrium", () => {
   const project = generateSymbolicEquilibrium(
       confirmResearchModel(

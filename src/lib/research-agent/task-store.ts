@@ -79,6 +79,7 @@ interface FailLocalAgentTaskInput {
 }
 
 const localTasksByOwner = new Map<string, LocalAgentTask[]>();
+const TASK_DB_RETRY_DELAYS_MS = [200, 800];
 
 type StoreModeInput = {
   forceLocal?: boolean;
@@ -146,20 +147,22 @@ export async function createAgentTask(input: CreateAgentTaskInput) {
 
   const { getDb, agentTasks } = await getTaskDb();
   const now = input.now ?? Date.now();
-  const [row] = await getDb()
-    .insert(agentTasks)
-    .values({
-      id: input.id,
-      ownerId: input.ownerId,
-      projectId: input.projectId,
-      action: input.action,
-      status: "queued",
-      input: stripSensitiveTaskValue(input.input ?? {}) as AgentTask["input"],
-      checkpoints: [],
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
-    })
-    .returning();
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .insert(agentTasks)
+      .values({
+        id: input.id,
+        ownerId: input.ownerId,
+        projectId: input.projectId,
+        action: input.action,
+        status: "queued",
+        input: stripSensitiveTaskValue(input.input ?? {}) as AgentTask["input"],
+        checkpoints: [],
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+      })
+      .returning()
+  );
 
   return agentTaskFromRow(row);
 }
@@ -200,28 +203,30 @@ export async function claimAgentTask({
   }
 
   const { getDb, agentTasks } = await getTaskDb();
-  const [row] = await getDb()
-    .update(agentTasks)
-    .set({
-      status: "running",
-      workerId: input.workerId,
-      leaseUntil: new Date(now + leaseMs),
-      updatedAt: new Date(now),
-    })
-    .where(
-      and(
-        eq(agentTasks.id, input.id),
-        eq(agentTasks.ownerId, input.ownerId),
-        or(
-          eq(agentTasks.status, "queued"),
-          and(
-            eq(agentTasks.status, "running"),
-            lte(agentTasks.leaseUntil, new Date(now))
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .update(agentTasks)
+      .set({
+        status: "running",
+        workerId: input.workerId,
+        leaseUntil: new Date(now + leaseMs),
+        updatedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(agentTasks.id, input.id),
+          eq(agentTasks.ownerId, input.ownerId),
+          or(
+            eq(agentTasks.status, "queued"),
+            and(
+              eq(agentTasks.status, "running"),
+              lte(agentTasks.leaseUntil, new Date(now))
+            )
           )
         )
       )
-    )
-    .returning();
+      .returning()
+  );
 
   return row ? agentTaskFromRow(row) : null;
 }
@@ -260,21 +265,23 @@ export async function renewAgentTaskLease({
   }
 
   const { getDb, agentTasks } = await getTaskDb();
-  const [row] = await getDb()
-    .update(agentTasks)
-    .set({
-      leaseUntil: new Date(now + leaseMs),
-      updatedAt: new Date(now),
-    })
-    .where(
-      and(
-        eq(agentTasks.id, input.id),
-        eq(agentTasks.ownerId, input.ownerId),
-        eq(agentTasks.workerId, input.workerId),
-        eq(agentTasks.status, "running")
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .update(agentTasks)
+      .set({
+        leaseUntil: new Date(now + leaseMs),
+        updatedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(agentTasks.id, input.id),
+          eq(agentTasks.ownerId, input.ownerId),
+          eq(agentTasks.workerId, input.workerId),
+          eq(agentTasks.status, "running")
+        )
       )
-    )
-    .returning();
+      .returning()
+  );
 
   return row ? agentTaskFromRow(row) : null;
 }
@@ -317,20 +324,22 @@ export async function appendAgentTaskCheckpoint({
     ...current.checkpoints,
     stripSensitiveTaskValue(input.checkpoint) as AgentTaskCheckpoint,
   ];
-  const [row] = await getDb()
-    .update(agentTasks)
-    .set({
-      checkpoints: asJsonb(checkpoints),
-      updatedAt: new Date(now),
-    })
-    .where(
-      and(
-        eq(agentTasks.id, input.id),
-        eq(agentTasks.ownerId, input.ownerId),
-        ...(input.workerId ? [eq(agentTasks.workerId, input.workerId)] : [])
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .update(agentTasks)
+      .set({
+        checkpoints: asJsonb(checkpoints),
+        updatedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(agentTasks.id, input.id),
+          eq(agentTasks.ownerId, input.ownerId),
+          ...(input.workerId ? [eq(agentTasks.workerId, input.workerId)] : [])
+        )
       )
-    )
-    .returning();
+      .returning()
+  );
 
   return row ? agentTaskFromRow(row) : null;
 }
@@ -365,23 +374,25 @@ export async function completeAgentTask({
 
   const { getDb, agentTasks } = await getTaskDb();
   const now = input.now ?? Date.now();
-  const [row] = await getDb()
-    .update(agentTasks)
-    .set({
-      status: "completed",
-      result: asJsonb(stripSensitiveTaskValue(input.result)),
-      leaseUntil: null,
-      updatedAt: new Date(now),
-      completedAt: new Date(now),
-    })
-    .where(
-      and(
-        eq(agentTasks.id, input.id),
-        eq(agentTasks.ownerId, input.ownerId),
-        ...(input.workerId ? [eq(agentTasks.workerId, input.workerId)] : [])
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .update(agentTasks)
+      .set({
+        status: "completed",
+        result: asJsonb(stripSensitiveTaskValue(input.result)),
+        leaseUntil: null,
+        updatedAt: new Date(now),
+        completedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(agentTasks.id, input.id),
+          eq(agentTasks.ownerId, input.ownerId),
+          ...(input.workerId ? [eq(agentTasks.workerId, input.workerId)] : [])
+        )
       )
-    )
-    .returning();
+      .returning()
+  );
 
   return row ? agentTaskFromRow(row) : null;
 }
@@ -416,23 +427,25 @@ export async function failAgentTask({
 
   const { getDb, agentTasks } = await getTaskDb();
   const now = input.now ?? Date.now();
-  const [row] = await getDb()
-    .update(agentTasks)
-    .set({
-      status: "failed",
-      error: input.error,
-      leaseUntil: null,
-      updatedAt: new Date(now),
-      failedAt: new Date(now),
-    })
-    .where(
-      and(
-        eq(agentTasks.id, input.id),
-        eq(agentTasks.ownerId, input.ownerId),
-        ...(input.workerId ? [eq(agentTasks.workerId, input.workerId)] : [])
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .update(agentTasks)
+      .set({
+        status: "failed",
+        error: input.error,
+        leaseUntil: null,
+        updatedAt: new Date(now),
+        failedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(agentTasks.id, input.id),
+          eq(agentTasks.ownerId, input.ownerId),
+          ...(input.workerId ? [eq(agentTasks.workerId, input.workerId)] : [])
+        )
       )
-    )
-    .returning();
+      .returning()
+  );
 
   return row ? agentTaskFromRow(row) : null;
 }
@@ -453,11 +466,13 @@ export async function getAgentTask(
   }
 
   const { getDb, agentTasks } = await getTaskDb();
-  const [row] = await getDb()
-    .select()
-    .from(agentTasks)
-    .where(and(eq(agentTasks.id, id), eq(agentTasks.ownerId, ownerId)))
-    .limit(1);
+  const [row] = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .select()
+      .from(agentTasks)
+      .where(and(eq(agentTasks.id, id), eq(agentTasks.ownerId, ownerId)))
+      .limit(1)
+  );
 
   return row ? agentTaskFromRow(row) : null;
 }
@@ -481,11 +496,13 @@ export async function listAgentTasksForProject(
   }
 
   const { getDb, agentTasks } = await getTaskDb();
-  const rows = await getDb()
-    .select()
-    .from(agentTasks)
-    .where(and(eq(agentTasks.ownerId, ownerId), eq(agentTasks.projectId, projectId)))
-    .orderBy(desc(agentTasks.createdAt));
+  const rows = await runTaskDbOperationWithRetry(() =>
+    getDb()
+      .select()
+      .from(agentTasks)
+      .where(and(eq(agentTasks.ownerId, ownerId), eq(agentTasks.projectId, projectId)))
+      .orderBy(desc(agentTasks.createdAt))
+  );
 
   return rows.map(agentTaskFromRow);
 }
@@ -526,10 +543,11 @@ export async function listClaimableAgentTasks({
       )
     )
     .orderBy(asc(agentTasks.createdAt));
-  const rows =
+  const rows = await runTaskDbOperationWithRetry(() =>
     typeof limit === "number" && limit >= 0
-      ? await query.limit(Math.floor(limit))
-      : await query;
+      ? query.limit(Math.floor(limit))
+      : query
+  );
 
   return rows.map(agentTaskFromRow);
 }
@@ -571,6 +589,28 @@ function applyTaskListLimit<T>(items: T[], limit?: number) {
   if (typeof limit !== "number") return items;
   if (limit <= 0) return [];
   return items.slice(0, Math.floor(limit));
+}
+
+export async function runTaskDbOperationWithRetry<T>(
+  operation: () => Promise<T>,
+  { retryDelaysMs = TASK_DB_RETRY_DELAYS_MS }: { retryDelaysMs?: number[] } = {}
+) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retryDelaysMs.length || !isTransientTaskDbError(error)) {
+        throw error;
+      }
+      const delayMs = retryDelaysMs[attempt];
+      if (delayMs > 0) await delay(delayMs);
+    }
+  }
+
+  throw lastError;
 }
 
 export function agentTaskFromRow(row: AgentTaskRow): AgentTask {
@@ -643,6 +683,51 @@ function asJsonb(value: unknown) {
 
 function toTimestamp(value: Date | null | undefined) {
   return value ? value.getTime() : undefined;
+}
+
+function isTransientTaskDbError(error: unknown) {
+  return collectErrorText(error).some((text) => {
+    const normalized = text.toLowerCase();
+    return (
+      normalized.includes("fetch failed") ||
+      normalized.includes("econnreset") ||
+      normalized.includes("etimedout") ||
+      normalized.includes("eai_again") ||
+      normalized.includes("und_err_socket") ||
+      normalized.includes("socket disconnected") ||
+      normalized.includes("client network socket disconnected") ||
+      normalized.includes("connection terminated") ||
+      normalized.includes("connection timeout") ||
+      normalized.includes("error connecting to database")
+    );
+  });
+}
+
+function collectErrorText(error: unknown) {
+  const details: string[] = [];
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) {
+      details.push(current.message);
+      current = current.cause;
+      continue;
+    }
+    if (typeof current === "object" && "cause" in current) {
+      current = (current as { cause?: unknown }).cause;
+      continue;
+    }
+    if (typeof current === "string") details.push(current);
+    break;
+  }
+
+  return details;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function getTaskDb() {

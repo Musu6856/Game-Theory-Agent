@@ -48,6 +48,10 @@ export function getAgentRecoverySuggestion(
     };
   }
 
+  if (isStaleRecoverableRun(project, run)) {
+    return null;
+  }
+
   if (run.status === "failed") {
     return createRetrySuggestion(project, run);
   }
@@ -57,6 +61,46 @@ export function getAgentRecoverySuggestion(
   }
 
   return null;
+}
+
+function isStaleRecoverableRun(project: ResearchProject, run: AgentRun) {
+  if (run.requiresApproval && hasPatchDecisionAfterRun(project, run)) {
+    return true;
+  }
+
+  if (run.status !== "running") {
+    return false;
+  }
+
+  const hasActiveCheckpoint = Boolean(
+    getLatestCheckpointsByStep(run).some(
+      (checkpoint) => checkpoint.status === "running"
+    )
+  );
+  const hasActiveStep = Boolean(
+    run.currentStepId || run.plan.some((step) => step.status === "running")
+  );
+
+  return !hasActiveCheckpoint && !hasActiveStep;
+}
+
+function getLatestCheckpointsByStep(run: AgentRun) {
+  const byStepId = new Map<string, AgentCheckpoint>();
+  for (const checkpoint of run.checkpoints ?? []) {
+    byStepId.set(checkpoint.stepId, checkpoint);
+  }
+  return [...byStepId.values()];
+}
+
+function hasPatchDecisionAfterRun(project: ResearchProject, run: AgentRun) {
+  const runTime = run.completedAt ?? run.startedAt;
+  return Boolean(
+    project.researchSession?.assetVersionHistory?.some(
+      (event) =>
+        (event.action === "applied_patch" || event.action === "rejected_patch") &&
+        event.createdAt >= runTime
+    )
+  );
 }
 
 function getLatestRecoverableRun(project?: ResearchProject | null) {

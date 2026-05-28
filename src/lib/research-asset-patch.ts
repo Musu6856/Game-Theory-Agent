@@ -5,6 +5,7 @@ import type {
   ResearchAssetPatch,
   ResearchAssetPatchInput,
   ResearchAssetPatchStatus,
+  ResearchAssetReviewRisk,
 } from "./types";
 
 const VALID_KINDS = new Set<ResearchAssetKind>([
@@ -24,6 +25,13 @@ const VALID_STATUSES = new Set<ResearchAssetPatchStatus>([
   "proposed",
   "applied",
   "rejected",
+]);
+
+const VALID_REVIEW_RISKS = new Set<ResearchAssetReviewRisk>([
+  "none",
+  "manual_review",
+  "coverage_blocked",
+  "optimality_incomplete",
 ]);
 
 export function createResearchAssetPatch(
@@ -114,6 +122,8 @@ function parseChanges(value: unknown): ResearchAssetChange[] | null {
 function normalizeResearchAssetChange(
   value: ResearchAssetChange | Record<string, unknown>
 ): ResearchAssetChange {
+  const reviewRisk = parseReviewRisk(value.reviewRisk);
+
   return {
     kind: parseChangeKind(value.kind) ?? "replace",
     path: normalizeText(value.path),
@@ -122,6 +132,7 @@ function normalizeResearchAssetChange(
       ? { previousValue: value.previousValue }
       : {}),
     ...(normalizeOptionalText(value.note) ? { note: normalizeOptionalText(value.note) } : {}),
+    ...(reviewRisk ? { reviewRisk } : {}),
   };
 }
 
@@ -145,6 +156,13 @@ function parsePatchStatus(
 ): ResearchAssetPatchStatus | null {
   return typeof value === "string" && VALID_STATUSES.has(value as ResearchAssetPatchStatus)
     ? (value as ResearchAssetPatchStatus)
+    : null;
+}
+
+function parseReviewRisk(value: unknown): ResearchAssetReviewRisk | null {
+  return typeof value === "string" &&
+    VALID_REVIEW_RISKS.has(value as ResearchAssetReviewRisk)
+    ? (value as ResearchAssetReviewRisk)
     : null;
 }
 
@@ -184,7 +202,8 @@ function isValidResearchAssetChange(change: ResearchAssetChange): boolean {
   return (
     VALID_CHANGE_KINDS.has(change.kind) &&
     Boolean(change.path.trim()) &&
-    (!change.note || change.note.trim().length > 0)
+    (!change.note || change.note.trim().length > 0) &&
+    (!change.reviewRisk || VALID_REVIEW_RISKS.has(change.reviewRisk))
   );
 }
 

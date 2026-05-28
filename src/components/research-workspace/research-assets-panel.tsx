@@ -379,6 +379,7 @@ function ResearchAssetsPanelContent({
             canSolveNow={canSolveNow}
             isSolvingEquilibrium={isSolvingEquilibrium}
             onSolveEquilibrium={onSolveEquilibrium}
+            onBuildModelRepair={onBuildModelRepair}
             mathSummary={mathSummary}
             onSelectAssetTab={setActiveTab}
             pendingEquilibriumCandidate={pendingEquilibriumCandidate}
@@ -1503,6 +1504,7 @@ function EquilibriumTab({
   canSolveNow,
   isSolvingEquilibrium,
   onSolveEquilibrium,
+  onBuildModelRepair,
   mathSummary,
   onSelectAssetTab,
 }: {
@@ -1514,6 +1516,7 @@ function EquilibriumTab({
   canSolveNow: boolean;
   isSolvingEquilibrium?: boolean;
   onSolveEquilibrium?: () => void;
+  onBuildModelRepair?: () => void;
   mathSummary: MathVerificationSummary;
   onSelectAssetTab?: (tab: ResearchAssetsTab) => void;
 }) {
@@ -1558,6 +1561,62 @@ function EquilibriumTab({
         isBusy={isSolvingEquilibrium}
         onAction={onSolveEquilibrium}
       />
+
+      {displayedIsSymbolicFailure ? (
+        <AssetSection
+          title="下一步怎么处理"
+          description="当前不是正式均衡资产。先补齐模型输入和最优性证据，再重新求解。"
+        >
+          <div className="space-y-3">
+            <p className="text-xs leading-5 text-muted-foreground">
+              如果草稿只停在 FOC、一阶条件或隐式系统，优先让 Agent 生成一个可审核的模型修复建议：补齐利润函数、约束、二阶条件、Hessian、凹性或边界/KKT 条件。应用修复 patch 后，再重新求解均衡。
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {onBuildModelRepair ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={isSolvingEquilibrium}
+                  onClick={createResearchActionClickHandler(onBuildModelRepair)}
+                >
+                  <AlertCircle className="size-3.5" />
+                  生成模型修复建议
+                </Button>
+              ) : null}
+              {onSolveEquilibrium ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={isSolvingEquilibrium}
+                  onClick={createResearchActionClickHandler(onSolveEquilibrium)}
+                >
+                  {isSolvingEquilibrium ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Sigma className="size-3.5" />
+                  )}
+                  重新尝试求解
+                </Button>
+              ) : null}
+              {onSelectAssetTab ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => onSelectAssetTab("quality")}
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  查看缺失机制/二阶条件
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </AssetSection>
+      ) : null}
 
       {displayedEquilibrium ? (
         <>

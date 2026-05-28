@@ -21,9 +21,24 @@ function createTask(overrides = {}) {
   };
 }
 
-test("isRecoverableAgentTask only treats queued and running tasks as recoverable", () => {
+test("isRecoverableAgentTask only treats queued and expired running tasks as recoverable", () => {
+  const now = 1710000010000;
   assert.equal(isRecoverableAgentTask(createTask({ status: "queued" })), true);
-  assert.equal(isRecoverableAgentTask(createTask({ status: "running" })), true);
+  assert.equal(isRecoverableAgentTask(createTask({ status: "running" }), now), true);
+  assert.equal(
+    isRecoverableAgentTask(
+      createTask({ status: "running", leaseUntil: now - 1 }),
+      now
+    ),
+    true
+  );
+  assert.equal(
+    isRecoverableAgentTask(
+      createTask({ status: "running", leaseUntil: now + 60_000 }),
+      now
+    ),
+    false
+  );
   assert.equal(isRecoverableAgentTask(createTask({ status: "completed" })), false);
   assert.equal(isRecoverableAgentTask(createTask({ status: "failed" })), false);
   assert.equal(isRecoverableAgentTask(createTask({ status: "cancelled" })), false);
@@ -54,10 +69,29 @@ test("selectRecoverableAgentTaskForProject picks the newest recoverable task for
         updatedAt: 1710000004000,
       }),
     ],
-    "project-1"
+    "project-1",
+    1710000010000
   );
 
   assert.equal(selected?.id, "task-new-queued");
+});
+
+test("selectRecoverableAgentTaskForProject ignores running tasks with an active lease", () => {
+  const now = 1710000010000;
+  const selected = selectRecoverableAgentTaskForProject(
+    [
+      createTask({
+        id: "task-active-elsewhere",
+        status: "running",
+        leaseUntil: now + 60_000,
+        updatedAt: now,
+      }),
+    ],
+    "project-1",
+    now
+  );
+
+  assert.equal(selected, null);
 });
 
 test("selectRecoverableAgentTaskForProject returns null when no task should be resumed", () => {

@@ -33,6 +33,10 @@ import {
   type SafeContinuationStep,
 } from "@/lib/research-agent/controller";
 import { selectRecoverableAgentTaskForProject } from "@/lib/research-agent/task-recovery";
+import {
+  isAgentTaskInProgress,
+  selectVisibleActiveAgentTask,
+} from "@/lib/research-agent/workspace-agent-task-state";
 import { appendSafeContinuationTrace } from "@/lib/research-agent/trace";
 import { proposeRollbackPatchFromVersionEvent } from "@/lib/research-agent/version-history";
 import type { AgentRecoverySuggestion } from "@/lib/research-agent/recovery";
@@ -125,10 +129,12 @@ export function ResearchWorkspace({
     ? displayedProject.researchSession ??
       createInitialResearchSession(displayedProject.rawIdea)
     : null;
-  const visibleAgentTask =
-    activeAgentTask?.projectId === activeProjectId ? activeAgentTask : null;
-  const isAgentTaskActive =
-    visibleAgentTask !== null && isAgentTaskInProgress(visibleAgentTask);
+  const visibleAgentTask = selectVisibleActiveAgentTask({
+    activeTask: activeAgentTask,
+    tasks: agentTasks,
+    projectId: activeProjectId,
+  });
+  const isAgentTaskActive = Boolean(visibleAgentTask);
   const isBusy =
     isSending ||
     Boolean(adoptingDirectionId) ||
@@ -232,18 +238,23 @@ export function ResearchWorkspace({
       const finalTask = selectNewestAgentTask(
         routeTask ? [finishedTask, routeTask] : [finishedTask]
       );
-      setActiveAgentTask(finalTask);
       upsertAgentTask(finalTask);
       if (runTaskError && isAgentTaskInProgress(finalTask)) {
+        setActiveAgentTask(finalTask);
         throw runTaskError;
       }
       if (finalTask.status === "failed") {
+        setActiveAgentTask(null);
         throw new Error(finalTask.error ?? "Agent task failed");
       }
       if (finalTask.status !== "completed") {
+        setActiveAgentTask(
+          isAgentTaskInProgress(finalTask) ? finalTask : null
+        );
         throw new Error(`Agent task stopped with status: ${finalTask.status}`);
       }
 
+      setActiveAgentTask(null);
       return refreshProjectFromServer(projectId);
     } finally {
       inFlightAgentTaskIdsRef.current.delete(task.id);
@@ -282,6 +293,7 @@ export function ResearchWorkspace({
         await runTask(recoverableTask, activeProjectId);
       } catch (error) {
         if (cancelled) return;
+        setActiveAgentTask(null);
         console.error("Failed to recover agent task", error);
         toast.error("任务恢复失败", {
           description: "请刷新项目或重新点击当前步骤。",
@@ -1065,10 +1077,6 @@ type BackgroundAgentTaskAction = Extract<
   | "draft_paper"
   | "revise_paper_section"
 >;
-
-function isAgentTaskInProgress(task: AgentTask) {
-  return task.status === "queued" || task.status === "running";
-}
 
 function selectNewestAgentTask(tasks: AgentTask[]) {
   return tasks.reduce((newest, task) =>

@@ -212,3 +212,70 @@ test("createEquilibriumCoverageArtifact records model and derivation coverage", 
     "r_A",
   ]);
 });
+
+test("evaluateEquilibriumCoverage does not require floating mechanism symbols as strategic decisions", () => {
+  const model = {
+    ...createMechanismRichModel(),
+    symbols: [
+      ...createMechanismRichModel().symbols,
+      {
+        id: "a-d3",
+        symbol: "a_d3",
+        baseSymbol: "a",
+        subscript: "d3",
+        codeName: "a_d3",
+        name: "Exclusion and multihoming mechanism placeholder",
+        meaning:
+          "A generated placeholder for exclusion agreement and multihoming friction.",
+        role: "decision",
+        side: "platform",
+        assumption: "0 <= a_d3 <= 1",
+        recommended: true,
+      },
+    ],
+    timing: [
+      {
+        id: "platform-choice",
+        order: 1,
+        name: "Platforms choose commission, subsidy, quality, recommendation",
+        decisions: ["tau_A", "s_A", "q_A", "r_A"],
+      },
+    ],
+    utilityFunctions: [
+      {
+        id: "buyer-a",
+        side: "consumer",
+        platform: "A",
+        expression: "v + theta*q_A + r_A - p_A - t*x",
+        notes:
+          "The model text mentions exclusion and multihoming, but a_d3 is not in this equation.",
+      },
+    ],
+    demandDerivation:
+      "Buyer demand n_A^B depends on tau_A, s_A, q_A and r_A through utility.",
+    profitFunctions: [
+      {
+        id: "profit-a",
+        platform: "A",
+        expression:
+          "Pi_A = tau_A*n_A^S - s_A*n_A^B - c_q*q_A^2/2 - c_r*r_A^2/2",
+        notes:
+          "The payoff has no a_d3 term, so a_d3 is not a strategic variable yet.",
+      },
+    ],
+    modelSetupDraft:
+      "The topic is exclusion agreements and multihoming, but a_d3 remains a placeholder outside the equations.",
+  };
+
+  const result = evaluateEquilibriumCoverage({
+    model,
+    equilibrium: createSimplifiedEquilibrium(),
+  });
+
+  assert.equal(result.model.decisionVariables.includes("a_d3"), false);
+  assert.equal(result.omittedModelSymbols.includes("a_d3"), false);
+  assert.equal(
+    result.omittedHighValueMechanisms.some((item) => item.symbol === "a_d3"),
+    false
+  );
+});

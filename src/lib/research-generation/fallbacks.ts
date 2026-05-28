@@ -16,6 +16,7 @@ import {
   mergeSymbolRegistries,
   normalizeSymbolRegistry,
 } from "../symbol-governance.ts";
+import { filterFloatingMechanismSymbols } from "../research-model-solvability.ts";
 import { createConfirmedRepairProposalPatch } from "../research-confirmed-repair-patch.ts";
 import { resolvePromptSymbols } from "./prompts.ts";
 import type { JsonValue, ResearchAssetPatch, ResearchGenerationResponse } from "./types.ts";
@@ -115,7 +116,10 @@ export function createMinimalSolvableModelForDirection(
   return {
     symbols: mergeSymbolRegistries(
       createResearchSymbolRegistryForDirection(direction),
-      normalizeSymbolRegistry(providerModel.symbols)
+      filterFloatingMechanismSymbols(
+        providerModel,
+        normalizeSymbolRegistry(providerModel.symbols)
+      )
     ),
     sides: providerModel.sides,
     platforms: ["A", "B"],

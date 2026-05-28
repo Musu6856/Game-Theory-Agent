@@ -497,6 +497,88 @@ test("applies an equilibrium patch to the right-side equilibrium result", () => 
   );
 });
 
+test("applying a risky solved equilibrium patch keeps equilibrium review as the next step", () => {
+  const project = {
+    ...createSolvedProject(),
+    propertyAnalyses: [
+      {
+        id: "old-analysis",
+        target: "\\tau_i^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_i^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "q>0 时为负。",
+        propositionDraft: "旧命题。",
+        proofSketch: "旧证明。",
+        intuition: "旧直觉。",
+        warnings: [],
+      },
+    ],
+    researchSession: {
+      ...createSolvedProject().researchSession,
+      phase: "equilibrium",
+      assetFreshness: {
+        model: "fresh",
+        equilibrium: "stale",
+        properties: "stale",
+      },
+    },
+  };
+  const patch = {
+    id: "patch-equilibrium-risky-solved",
+    kind: "equilibrium",
+    summary: "Risky solved-looking equilibrium candidate",
+    status: "proposed",
+    createdAt: 1710000000001,
+    changes: [
+      {
+        kind: "replace",
+        path: "equilibriumResult",
+        reviewRisk: "coverage_blocked",
+        note:
+          "Structured risk should keep this candidate in equilibrium review.",
+        value: {
+          status: "solved",
+          concept: "Solved-looking but coverage-blocked equilibrium",
+          solvingSteps: ["Solve the simplified symmetric Hotelling core."],
+          focs: ["\\frac{\\partial \\Pi_A}{\\partial s_A}=0"],
+          conditions: ["Hessian negative under the simplified core."],
+          closedForm: "s_A^*=s_B^*=s^*, \\tau_A^*=\\tau_B^*=\\tau^*",
+          derivation:
+            "This candidate omits the multihoming mechanism a_d3 and therefore requires manual review.",
+          code: "import sympy as sp",
+          warnings: [
+            "Coverage/manual review required before treating this candidate as final.",
+          ],
+        },
+      },
+    ],
+  };
+  const projectWithPatch = {
+    ...project,
+    researchSession: {
+      ...project.researchSession,
+      assetPatches: [...(project.researchSession?.assetPatches ?? []), patch],
+    },
+  };
+
+  const nextProject = applyResearchAssetPatchToProject(projectWithPatch, patch, {
+    now: 1710000000002,
+  });
+  const flow = getResearchFlowState(nextProject);
+
+  assert.equal(nextProject.researchSession?.phase, "equilibrium");
+  assert.equal(nextProject.equilibriumResult?.status, "needs_revision");
+  assert.equal(
+    nextProject.researchSession?.assetSummary.pendingDecision?.kind,
+    "solve_equilibrium"
+  );
+  assert.deepEqual(nextProject.propertyAnalyses, project.propertyAnalyses);
+  assert.equal(nextProject.researchSession?.assetFreshness?.properties, "stale");
+  assert.equal(flow.canAnalyzeProperties, false);
+});
+
 test("applying a symbolic failure equilibrium patch keeps solving as the next step", () => {
   const project = createSolvedProject();
   const patch = {

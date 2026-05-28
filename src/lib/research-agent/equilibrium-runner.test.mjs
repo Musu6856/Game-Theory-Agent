@@ -455,9 +455,14 @@ test("equilibrium solving agent blocks simplified equilibria that omit rich mode
   );
 
   assert.equal(result.agentRun.status, "paused");
-  assert.equal(result.agentRun.requiresApproval, false);
-  assert.equal(patches.some((patch) => patch.kind === "equilibrium"), false);
-  assert.equal(result.project.equilibriumResult?.status, "solved");
+  assert.equal(result.agentRun.requiresApproval, true);
+  assert.equal(patches.some((patch) => patch.kind === "equilibrium"), true);
+  assert.equal(
+    patches.find((patch) => patch.kind === "equilibrium")?.changes[0]
+      ?.reviewRisk,
+    "coverage_blocked"
+  );
+  assert.equal(result.project.equilibriumResult?.status, "needs_revision");
   assert.equal(coverageArtifact?.status, "failed");
   assert.ok(
     coverageArtifact?.issues?.some(
@@ -552,6 +557,118 @@ test("equilibrium solving agent keeps non-solved draft in chat without proposing
     true
   );
   assert.match(result.assistantMessage, /草稿|没有创建正式均衡 patch|不会进入性质分析/);
+  assert.equal(result.agentRun.status, "paused");
+  assert.equal(result.agentRun.requiresApproval, false);
+});
+
+test("equilibrium solving agent preserves an existing equilibrium asset when a re-solve falls back to a draft", async () => {
+  const baseProject = createConfirmedProject();
+  const existingEquilibrium = withOptimalityEvidence({
+    status: "solved",
+    concept: "Previously applied equilibrium candidate",
+    solvingSteps: ["Solve the earlier accepted candidate."],
+    focs: ["\\partial \\Pi_A / \\partial s_A = 0"],
+    conditions: ["Second-order condition was recorded for the prior candidate."],
+    closedForm: "s_A^*=s_B^*=s^*, \\tau_A^*=\\tau_B^*=\\tau^*",
+    derivation: "Prior candidate retained as the current right-side asset.",
+    code: "import sympy as sp",
+    warnings: [],
+  });
+  const project = {
+    ...baseProject,
+    equilibriumResult: existingEquilibrium,
+    propertyAnalyses: [
+      {
+        id: "prior-analysis",
+        target: "\\tau_i^*",
+        parameter: "\\alpha_B",
+        operation: "differentiate",
+        symbolicResult:
+          "\\frac{\\partial \\tau_i^*}{\\partial \\alpha_B}=-\\frac{2}{q}",
+        signCondition: "q>0 时为负。",
+        propositionDraft: "Prior proposition.",
+        proofSketch: "Prior proof.",
+        intuition: "Prior intuition.",
+        warnings: [],
+      },
+    ],
+    researchSession: {
+      ...baseProject.researchSession,
+      phase: "equilibrium",
+      assetSummary: {
+        ...baseProject.researchSession?.assetSummary,
+        equilibriumStatus: "solved",
+        pendingDecision: {
+          kind: "solve_equilibrium",
+          prompt: "Retry symbolic equilibrium solving.",
+        },
+      },
+      assetFreshness: {
+        model: "fresh",
+        equilibrium: "fresh",
+        properties: "stale",
+      },
+    },
+  };
+  const fallbackDraftMessage =
+    "I only obtained a fallback derivation draft for the re-solve attempt.";
+  const fallbackDraft = {
+    status: "derivation_draft",
+    concept: "Fallback diagnostic draft",
+    solvingSteps: ["List model-bound FOCs but do not solve them."],
+    focs: ["F(z,theta)=0"],
+    conditions: ["Need model repair or manual review."],
+    closedForm: "No closed-form result from this re-solve.",
+    derivation: fallbackDraftMessage,
+    code: "print('diagnostic only')",
+    warnings: ["This fallback draft must not overwrite the existing asset."],
+  };
+
+  const result = await runEquilibriumSolvingAgent(
+    {
+      rawIdea: project.rawIdea,
+      project,
+    },
+    {
+      id: "equilibrium-agent-fallback-after-existing-test",
+      now: 1710000000000,
+      solveEquilibrium: async () => ({
+        project: {
+          ...project,
+          equilibriumResult: fallbackDraft,
+          researchSession: {
+            ...project.researchSession,
+            messages: [
+              ...(project.researchSession?.messages ?? []),
+              {
+                id: "msg-provider-fallback-draft",
+                role: "assistant",
+                content: fallbackDraftMessage,
+                createdAt: 0,
+              },
+            ],
+          },
+        },
+        usedFallback: true,
+        assistantMessage: fallbackDraftMessage,
+      }),
+    }
+  );
+
+  const session = result.project.researchSession;
+
+  assert.equal(result.usedFallback, true);
+  assert.equal(result.project.equilibriumResult?.closedForm, existingEquilibrium.closedForm);
+  assert.equal(result.project.equilibriumResult?.status, "solved");
+  assert.deepEqual(result.project.propertyAnalyses, project.propertyAnalyses);
+  assert.equal(session?.assetSummary.pendingDecision?.kind, "solve_equilibrium");
+  assert.equal(session?.assetSummary.equilibriumStatus, "solved");
+  assert.equal(
+    session?.messages.some((message) =>
+      message.content.includes(fallbackDraftMessage)
+    ),
+    true
+  );
   assert.equal(result.agentRun.status, "paused");
   assert.equal(result.agentRun.requiresApproval, false);
 });

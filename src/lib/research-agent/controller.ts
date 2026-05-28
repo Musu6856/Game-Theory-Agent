@@ -400,6 +400,27 @@ export function recommendNextAgentStep(
     };
   }
 
+  if (
+    flow.canSolveEquilibrium &&
+    isDraftEquilibriumStatus(project.equilibriumResult?.status) &&
+    equilibriumKernelDecision?.action !== "solve_equilibrium"
+  ) {
+    return {
+      status: "ready",
+      title: "补齐均衡求解证据",
+      reason:
+        "当前只得到均衡推导草稿，缺少闭式解或二阶条件、Hessian、凹性、边界/KKT 等最优性证据。下一步应先生成模型/求解输入修复建议，补齐利润函数、约束和验证条件，再重新求解。",
+      targetTab: "model",
+      action: {
+        kind: "answer_model_question",
+        agentAction: "build_model",
+        label: "生成模型修复建议",
+        description:
+          "基于当前均衡草稿补齐模型、利润函数、约束和二阶/Hessian/KKT 证据入口，并以待审核模型 patch 呈现。",
+      },
+    };
+  }
+
   if (flow.canSolveEquilibrium) {
     return {
       status: "ready",

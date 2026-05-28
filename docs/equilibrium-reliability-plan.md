@@ -373,3 +373,201 @@ As of 2026-05-27:
 - The middle chat should remain useful for long derivations and solver scratch work.
 - The right-side patch system remains valuable, but only as the promotion/review layer after derivation quality is established.
 - Next work should be product validation against benchmark/model examples, not another claim that the solver is a universal CAS.
+
+---
+
+## 6. 2026-05-29 待执行计划：均衡求解循环修复
+
+> **给目标模式 / 下一轮 Agent 使用：**按本节逐项执行、逐项验收。当前工作区已经有未提交实现草稿，执行前先跑对应测试确认哪些步骤已经完成；只补缺口，不重复改同一段逻辑。
+
+**核心症状：**应用一个高风险均衡 patch 后，工作台可能直接跳到性质分析，即使该均衡还不可信；随后再次求解又可能退回 `derivation_draft`，并覆盖右侧当前均衡状态。
+
+**更深层原因：**当前选题是排他协议 / 多归属，但已确认模型里出现了 `a_d3` 这类机制符号，却没有把它放进效用、需求或利润方程。求解器只能在“忽略这个机制”和“反复阻塞”之间来回卡住。
+
+**Target project for reproduction:** `f2a17d53-7e18-42d3-a26d-1300ef22193c`
+
+**Root cause confirmed on 2026-05-29:**
+
+- Latest solve runs show `usedFallback: true` and `status: derivation_draft`; this is not a right-panel sync failure.
+- One earlier provider run returned `status: solved`, but model coverage flagged omitted `a_d3` / multihoming mechanisms and suspicious default Hotelling simplification.
+- Applying that risky `solved` patch advanced `researchSession.phase` to `analysis` because `applyEquilibriumAssetPatch` only checks `equilibrium.status === "solved"`.
+- Re-solving after that can replace the displayed equilibrium with the local fallback draft, hiding the previously applied candidate and putting the user back into a loop.
+
+### Task 1: 高风险 solved patch 不能解锁性质分析
+
+**Goal:** 带模型覆盖风险或人工复核风险的 `solved` 均衡 patch，应用后仍停在均衡复核阶段，不能进入性质分析。
+
+**Files:**
+
+- Modify `src/lib/research-asset-patch-apply.test.mjs`
+- Modify `src/lib/research-asset-patch-apply.ts`
+
+**Steps:**
+
+- [x] Add a test fixture project with `researchSession.phase: "equilibrium"` and a pending equilibrium patch whose change replaces `equilibriumResult` with `status: "solved"`, but whose change note contains coverage/manual-review risk such as `omitted mechanisms`, `Coverage/manual review required`, or `suspicious default Hotelling simplification`.
+- [x] Assert that applying this patch keeps `researchSession.phase === "equilibrium"`.
+- [x] Assert that `assetSummary.pendingDecision.kind === "solve_equilibrium"` or another explicit review/repair action, not `analyze_properties`.
+- [x] Assert that `propertyAnalyses` remains unchanged and properties freshness remains `stale`.
+- [x] Implement the minimal application guard in `applyEquilibriumAssetPatch`.
+- [x] Run `node --test src\lib\research-asset-patch-apply.test.mjs`.
+
+**Implementation guidance:**
+
+- Prefer a small helper near `applyEquilibriumAssetPatch`, for example `isRiskyEquilibriumPatchApplication(patch, equilibrium)`.
+- The first version may read patch `changes[].note` and equilibrium `warnings` for stable risk phrases already created by `createEquilibriumCandidatePatch`.
+- Do not route risky solved patches to `analysis`; treat them like review-required equilibrium assets.
+
+**Acceptance:**
+
+- Applying a risky solved equilibrium patch writes the candidate to `equilibriumResult` only as a review-required equilibrium state.
+- The user is not moved to the property tab as if the equilibrium were final.
+
+### Task 2: 重新求解失败时保留已有均衡资产
+
+**Goal:** provider 失败或本地诊断 fallback 只能作为中间对话/诊断草稿，不能擦掉已经应用到右侧的均衡候选。
+
+**Files:**
+
+- Modify `src/lib/research-agent/equilibrium-runner.test.mjs`
+- Modify `src/lib/research-agent/equilibrium-runner.ts`
+- If needed, modify `src/lib/ai-research-generation.ts`
+
+**Steps:**
+
+- [x] Add a test where `request.project.equilibriumResult.status === "solved"` and the next `solveEquilibrium` call returns `usedFallback: true` with `equilibriumResult.status === "derivation_draft"`.
+- [x] Assert that the returned project keeps the original `equilibriumResult` as the right-side asset.
+- [x] Assert that the fallback draft still appears in `researchSession.messages` and/or `researchSession.mathArtifacts` so the user can read what happened.
+- [x] Assert that the next action asks for model repair, manual review, or re-solve instead of silently replacing the formal asset.
+- [x] Implement the runner branch so non-solved fallback drafts are attached as diagnostic conversation/artifacts when a prior equilibrium asset exists.
+- [x] Run `node --test src\lib\research-agent\equilibrium-runner.test.mjs`.
+
+**Implementation guidance:**
+
+- Keep `attachEquilibriumDraftForReview` for first-time drafts.
+- Add a separate path for fallback-after-existing-equilibrium, for example `attachEquilibriumDiagnosticDraft`, that preserves `originalProject.equilibriumResult`.
+- Do not mark properties fresh or unlock downstream analysis from this fallback.
+
+**Acceptance:**
+
+- Repeated clicking on "start symbolic equilibrium" cannot degrade an already applied candidate into the local scaffold draft.
+- The middle chat still explains the failed attempt.
+
+### Task 3: 覆盖阻断风险必须结构化
+
+**Goal:** 应用逻辑不能只靠英文 note 文本判断 patch 是否高风险；风险必须写成机器可读字段。
+
+**Files:**
+
+- Modify `src/lib/types.ts`
+- Modify `src/lib/research-agent/equilibrium-runner.ts`
+- Modify `src/lib/research-asset-patch-apply.ts`
+- Modify relevant parser/display tests if type changes require them
+
+**Steps:**
+
+- [x] Add a minimal optional metadata field to `ResearchAssetPatch` or `ResearchAssetChange`, such as `reviewRisk?: "none" | "manual_review" | "coverage_blocked" | "optimality_incomplete"`.
+- [x] When `equilibrium-runner` creates a patch after blocking model coverage, set `reviewRisk: "coverage_blocked"` on the equilibrium change or patch.
+- [x] When SOC/Hessian/KKT evidence is missing or manual-review only, set `reviewRisk: "optimality_incomplete"` or `manual_review`.
+- [x] Update `applyEquilibriumAssetPatch` to prefer metadata over note-text detection.
+- [x] Keep backward compatibility by still recognizing existing risk notes.
+- [x] Run `npm test` for touched tests.
+
+**Acceptance:**
+
+- Risky equilibrium patches are explicitly represented in structured data.
+- Old projects with only note text still behave safely.
+
+### Task 4: 修复排他 / 多归属模型机制缺口
+
+**Goal:** “排他协议与多归属”方向不能继续保留游离在方程外的 `a_d3`；机制符号必须进入效用、需求、利润或明确要求模型澄清。
+
+**Files:**
+
+- Modify `src/lib/research-generation/prompts.ts`
+- Modify `src/lib/research-generation/fallbacks.ts` if local repair scaffolds are used
+- Modify `src/lib/research-model-solvability.ts` or model quality tests if needed
+- Add or modify `src/lib/ai-research-generation.test.mjs`
+- Add or modify `src/lib/research-agent/equilibrium-coverage.test.mjs`
+
+**Recommended modeling decision for this milestone:**
+
+- Treat the exclusion/multihoming mechanism as an exogenous policy or friction parameter first, not a new strategic decision variable.
+- Put the mechanism into buyer/seller utility or demand, for example as a multihoming friction or exclusivity attractiveness term.
+- Keep platform strategic choices as `s_i` and `tau_i` for this repair pass, so the solver has a bounded chance to produce a real symbolic result.
+
+**Steps:**
+
+- [x] Add a model-generation test for a direction titled "外卖平台排他性协议与多归属" that verifies any introduced mechanism symbol appears in at least one utility, demand, or profit expression.
+- [x] Add a coverage test proving a symbol such as `a_d3` should not be required as a strategic decision unless it appears in timing and payoff equations.
+- [x] Update the model prompt so it does not create generic mechanism symbols unless it also gives explicit equations for them.
+- [x] If the provider still creates a mechanism symbol without equations, route to a model repair patch instead of sending the user into repeated equilibrium solving.
+- [x] Run `node --test src\lib\ai-research-generation.test.mjs src\lib\research-agent\equilibrium-coverage.test.mjs`.
+
+**Acceptance:**
+
+- The model either explicitly uses the multihoming/exclusion mechanism in equations or asks for model clarification.
+- The solver no longer has to choose between "ignore `a_d3`" and "block forever."
+
+### Task 5: 右侧恢复 UI 要能指路
+
+**Goal:** 当系统卡在 `derivation_draft` 循环时，右侧面板要告诉用户下一步是修模型、复核二阶条件，还是重新求解，而不是继续盲点“继续”。
+
+**Files:**
+
+- Modify `src/components/research-workspace/research-assets-panel.tsx`
+- Modify `src/components/research-workspace/research-workspace.tsx`
+- Modify `src/lib/research-agent/controller.ts`
+- Modify `src/lib/research-agent/recovery.ts`
+- Add or modify `src/lib/research-agent/controller.test.mjs`
+- Add or modify `src/lib/research-agent/recovery.test.mjs`
+
+**Steps:**
+
+- [x] Add tests where a project has repeated fallback drafts and a model-coverage blocker; expected recommendation is model repair, not another blind re-solve.
+- [x] Ensure the equilibrium tab shows at least these actions when appropriate: "生成模型修复建议", "重新尝试求解", and "查看缺失机制/二阶条件".
+- [x] Make "continue" stop at model repair or patch review when the latest failure says model coverage is missing.
+- [x] Prevent recovery cards from showing stale paused runs after a patch was already applied or rejected.
+- [x] Run `node --test src\lib\research-agent\controller.test.mjs src\lib\research-agent\recovery.test.mjs`.
+
+**Acceptance:**
+
+- The user sees a concrete path out of the loop.
+- "Continue" and "retry" do not keep repeating the same fallback solve when the real blocker is model input.
+
+### Task 6: 端到端验收
+
+**Goal:** 提交前证明“高风险均衡不越级、fallback 不覆盖、用户能从右侧看到下一步动作”这条链路真的修好了。
+
+**Commands:**
+
+- [x] `node --test src\lib\research-asset-patch-apply.test.mjs src\lib\research-agent\equilibrium-runner.test.mjs src\lib\research-agent\controller.test.mjs src\lib\research-agent\recovery.test.mjs`
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npm run build`
+- [x] `git diff --check`
+
+**Browser flow to verify locally:**
+
+- [x] Open `http://localhost:3000/research/f2a17d53-7e18-42d3-a26d-1300ef22193c`.
+- [x] Apply or reject any existing pending patch so the page is in a clean state.
+- [x] Trigger model repair when the right panel says the exclusion/multihoming mechanism is missing from equations.
+- [x] Apply the model repair patch.
+- [x] Trigger symbolic equilibrium solving.
+- [x] Confirm that a draft stays in chat and does not overwrite a prior formal asset if the provider fails.
+- [x] Confirm that a risky solved candidate appears as review-required and does not auto-unlock property analysis.
+- [x] Confirm that only a promoted, coverage-safe, optimality-supported equilibrium unlocks property analysis.
+
+**Commit guidance:**
+
+- Commit after the full verification pass.
+- Suggested message: `fix: keep risky equilibrium drafts from unlocking analysis`
+
+**Stop condition:**
+
+- If three consecutive implementation attempts still produce the same loop, stop and reassess the architecture. At that point the next change should be a stronger model-repair-first flow, not another solve button patch.
+
+**Execution evidence, 2026-05-29:**
+
+- Focused plan tests passed: `node --test src\lib\research-asset-patch-apply.test.mjs src\lib\research-agent\equilibrium-runner.test.mjs src\lib\research-agent\controller.test.mjs src\lib\research-agent\recovery.test.mjs`.
+- Full gates passed: `npm test` (`510` tests, `509` passed, `1` skipped), `npx tsc --noEmit`, `npm run lint` (`0` errors, `3` existing warnings), `npm run build`, and `git diff --check`.
+- Local browser verification on project `f2a17d53-7e18-42d3-a26d-1300ef22193c` confirmed: no pending patch at start, model repair patch generated through the right panel, applying it returned the project to equilibrium re-solve instead of property analysis, and the next solve ended as `derivation_draft` with chat/right-panel diagnostics rather than unlocking properties.

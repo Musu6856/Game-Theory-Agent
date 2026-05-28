@@ -305,11 +305,16 @@ function applyEquilibriumAssetPatch(
     project.equilibriumResult ?? createSymbolicEquilibriumScaffoldResult(),
     patch.changes
   );
+  const appliedEquilibrium =
+    equilibrium.status === "solved" &&
+    isRiskyEquilibriumPatchApplication(patch, equilibrium)
+      ? markSolvedEquilibriumAsReviewRequired(equilibrium)
+      : equilibrium;
 
-  if (equilibrium.status !== "solved") {
+  if (appliedEquilibrium.status !== "solved") {
     return {
       ...project,
-      equilibriumResult: equilibrium,
+      equilibriumResult: appliedEquilibrium,
       researchSession: {
         ...session,
         phase: "equilibrium",
@@ -320,7 +325,7 @@ function applyEquilibriumAssetPatch(
         },
         assetSummary: {
           ...session.assetSummary,
-          equilibriumStatus: equilibrium.status,
+          equilibriumStatus: appliedEquilibrium.status,
           pendingDecision: {
             kind: "solve_equilibrium",
             prompt:
@@ -346,7 +351,7 @@ function applyEquilibriumAssetPatch(
 
   return {
     ...project,
-    equilibriumResult: equilibrium,
+    equilibriumResult: appliedEquilibrium,
     researchSession: {
       ...session,
       phase: "analysis",
@@ -357,7 +362,7 @@ function applyEquilibriumAssetPatch(
       },
       assetSummary: {
         ...session.assetSummary,
-        equilibriumStatus: equilibrium.status,
+        equilibriumStatus: appliedEquilibrium.status,
         pendingDecision: {
           kind: "analyze_properties",
           prompt:
@@ -378,6 +383,49 @@ function applyEquilibriumAssetPatch(
         ),
       ],
     },
+  };
+}
+
+function isRiskyEquilibriumPatchApplication(
+  patch: ResearchAssetPatch,
+  equilibrium: EquilibriumResult
+) {
+  if (
+    patch.changes.some(
+      (change) =>
+        change.reviewRisk === "coverage_blocked" ||
+        change.reviewRisk === "optimality_incomplete" ||
+        change.reviewRisk === "manual_review"
+    )
+  ) {
+    return true;
+  }
+
+  const riskText = [
+    patch.summary,
+    ...patch.changes.flatMap((change) => [
+      change.note ?? "",
+      typeof change.value === "string" ? change.value : "",
+    ]),
+    ...equilibrium.warnings,
+  ].join("\n");
+
+  return /coverage\/manual review|required|manual[_\s-]?review|model_coverage_failed|omits high-value|omitted mechanisms|suspicious default|suspicious simplification|coverage-blocked|coverage blocked/i.test(
+    riskText
+  );
+}
+
+function markSolvedEquilibriumAsReviewRequired(
+  equilibrium: EquilibriumResult
+): EquilibriumResult {
+  const reviewWarning =
+    "This solved-looking equilibrium was applied as review-required because Agent checks found coverage or manual-review risk.";
+  return {
+    ...equilibrium,
+    status: "needs_revision",
+    warnings: equilibrium.warnings.includes(reviewWarning)
+      ? equilibrium.warnings
+      : [...equilibrium.warnings, reviewWarning],
   };
 }
 

@@ -5,6 +5,7 @@ import type {
   EquilibriumResult,
   ResearchMathArtifact,
   ResearchAssetChange,
+  ResearchAssetReviewRisk,
   ResearchProject,
   ResearchSessionMessage,
 } from "../types";
@@ -345,39 +346,64 @@ export async function runEquilibriumSolvingAgent(
       now
     );
     await recordStepStatus("review-equilibrium", "completed");
+    const patch = createEquilibriumCandidatePatch({
+      equilibrium: candidateEquilibrium,
+      now,
+      sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
+      riskNotes: [
+        "Coverage/manual review required before treating this candidate as final.",
+        ...(initialCoverageArtifact.issues ?? []),
+      ],
+      reviewRisk: "coverage_blocked",
+      reviewChecks: review.checks,
+    });
+    const proposal = recordProposedPatchStep({
+      agentRun,
+      project: request.project,
+      patch,
+      stepId: "propose-equilibrium-patch",
+      now,
+      message:
+        "Coverage review found omitted mechanisms, so I created a high-attention equilibrium patch instead of silently applying the candidate.",
+    });
+    agentRun = proposal.agentRun;
+    const mathArtifacts = attachArtifactRunAndPatch({
+      artifacts: [
+        createEquilibriumCandidateArtifact({
+          equilibrium: candidateEquilibrium,
+          runId: agentRun.id,
+          patchId: proposal.patch.id,
+          now,
+        }),
+        ...accumulatedReviewArtifacts,
+      ],
+      runId: agentRun.id,
+      patchId: proposal.patch.id,
+    });
     agentRun = {
       ...agentRun,
       status: "paused",
       currentStepId: undefined,
       pauseReason:
-        "The candidate omits confirmed high-value model mechanisms or appears to simplify the model. Review the coverage artifact and revise the derivation before creating a formal equilibrium patch.",
-      requiresApproval: false,
+        "The candidate has a solved form and optimality evidence, but coverage review found omitted mechanisms. Review the proposed equilibrium patch before applying it.",
+      requiresApproval: true,
       completedAt: now,
     };
 
     return {
-      project: attachEquilibriumDraftForReview({
+      project: attachEquilibriumPatchForReview({
         originalProject: request.project,
         solveResult,
-        equilibrium: candidateEquilibrium,
+        patch: proposal.patch,
         agentRun,
         now,
-        draftReason:
-          "The derivation did not cover all confirmed high-value model mechanisms, so it remains a draft/manual-review result rather than a formal equilibrium asset.",
+        reviewIssues: initialCoverageArtifact.issues ?? [],
         reviewChecks: review.checks,
-        mathArtifacts: [
-          createEquilibriumCandidateArtifact({
-            equilibrium: candidateEquilibrium,
-            runId: agentRun.id,
-            patchId: `draft-equilibrium-${now}`,
-            now,
-          }),
-          ...accumulatedReviewArtifacts,
-        ],
+        mathArtifacts,
       }),
       usedFallback: solveResult.usedFallback,
       assistantMessage:
-        "This candidate looks solved, but the model-coverage check found omitted confirmed mechanisms. I kept it as a draft and did not create a formal equilibrium patch.",
+        "This candidate has a solved form and optimality evidence, but the model-coverage check found omitted confirmed mechanisms. I created a reviewable equilibrium patch for manual approval instead of applying it directly.",
       agentRun,
     };
   }
@@ -708,39 +734,64 @@ export async function runEquilibriumSolvingAgent(
       now
     );
     await recordStepStatus("review-equilibrium", "completed");
+    const patch = createEquilibriumCandidatePatch({
+      equilibrium: candidateEquilibrium,
+      now,
+      sourceMessageId: request.project.researchSession?.messages.at(-1)?.id,
+      riskNotes: [
+        "Coverage/manual review required before treating this candidate as final.",
+        ...(coverageArtifact.issues ?? []),
+      ],
+      reviewRisk: "coverage_blocked",
+      reviewChecks: review.checks,
+    });
+    const proposal = recordProposedPatchStep({
+      agentRun,
+      project: request.project,
+      patch,
+      stepId: "propose-equilibrium-patch",
+      now,
+      message:
+        "Coverage review found omitted mechanisms, so I created a high-attention equilibrium patch instead of silently applying the candidate.",
+    });
+    agentRun = proposal.agentRun;
+    const mathArtifacts = attachArtifactRunAndPatch({
+      artifacts: [
+        createEquilibriumCandidateArtifact({
+          equilibrium: candidateEquilibrium,
+          runId: agentRun.id,
+          patchId: proposal.patch.id,
+          now,
+        }),
+        ...accumulatedReviewArtifacts,
+      ],
+      runId: agentRun.id,
+      patchId: proposal.patch.id,
+    });
     agentRun = {
       ...agentRun,
       status: "paused",
       currentStepId: undefined,
       pauseReason:
-        "The candidate omits confirmed high-value model mechanisms or appears to simplify the model. Review the coverage artifact and revise the derivation before creating a formal equilibrium patch.",
-      requiresApproval: false,
+        "The candidate has a solved form and optimality evidence, but coverage review found omitted mechanisms. Review the proposed equilibrium patch before applying it.",
+      requiresApproval: true,
       completedAt: now,
     };
 
     return {
-      project: attachEquilibriumDraftForReview({
+      project: attachEquilibriumPatchForReview({
         originalProject: request.project,
         solveResult,
-        equilibrium: candidateEquilibrium,
+        patch: proposal.patch,
         agentRun,
         now,
-        draftReason:
-          "The derivation did not cover all confirmed high-value model mechanisms, so it remains a draft/manual-review result rather than a formal equilibrium asset.",
+        reviewIssues: coverageArtifact.issues ?? [],
         reviewChecks: review.checks,
-        mathArtifacts: [
-          createEquilibriumCandidateArtifact({
-            equilibrium: candidateEquilibrium,
-            runId: agentRun.id,
-            patchId: `draft-equilibrium-${now}`,
-            now,
-          }),
-          ...accumulatedReviewArtifacts,
-        ],
+        mathArtifacts,
       }),
       usedFallback: solveResult.usedFallback,
       assistantMessage:
-        "This candidate looks solved, but the model-coverage check found omitted confirmed mechanisms. I kept it as a draft and did not create a formal equilibrium patch.",
+        "This candidate has a solved form and optimality evidence, but the model-coverage check found omitted confirmed mechanisms. I created a reviewable equilibrium patch for manual approval instead of applying it directly.",
       agentRun,
     };
   }
@@ -935,6 +986,17 @@ function isSolvedEquilibriumCandidate(equilibrium: EquilibriumResult) {
   return equilibrium.status === "solved" && equilibrium.closedForm.trim().length > 0;
 }
 
+function isDraftEquilibriumStatus(status?: EquilibriumResult["status"]) {
+  return (
+    status === "derivation_draft" ||
+    status === "implicit_system" ||
+    status === "reaction_functions" ||
+    status === "failed_with_reason" ||
+    status === "needs_model_clarification" ||
+    status === "symbolic_failure"
+  );
+}
+
 function hasPromotionOptimalityEvidence(equilibrium: EquilibriumResult) {
   const text = [
     ...equilibrium.solvingSteps,
@@ -1054,12 +1116,14 @@ function createEquilibriumCandidatePatch({
   now,
   sourceMessageId,
   riskNotes,
+  reviewRisk,
   reviewChecks,
 }: {
   equilibrium: EquilibriumResult;
   now: number;
   sourceMessageId?: string;
   riskNotes: string[];
+  reviewRisk?: ResearchAssetReviewRisk;
   reviewChecks: MathVerificationCheck[];
 }) {
   const note = createEquilibriumPatchNote({
@@ -1072,6 +1136,7 @@ function createEquilibriumCandidatePatch({
       path: "equilibriumResult",
       value: equilibrium,
       note,
+      ...(reviewRisk ? { reviewRisk } : {}),
     },
   ];
 
@@ -1263,6 +1328,13 @@ function attachEquilibriumDraftForReview({
     solveResult.project.researchSession ??
     createInitialResearchSession(originalProject.rawIdea);
   const providerMessages = solveResult.project.researchSession?.messages ?? [];
+  const preserveExistingEquilibrium =
+    solveResult.usedFallback &&
+    Boolean(originalProject.equilibriumResult) &&
+    !isDraftEquilibriumStatus(originalProject.equilibriumResult?.status);
+  const displayedEquilibrium = preserveExistingEquilibrium
+    ? originalProject.equilibriumResult
+    : equilibrium;
   const messages = mergeMessagesById(session.messages, [
     ...providerMessages,
     {
@@ -1276,7 +1348,7 @@ function attachEquilibriumDraftForReview({
   return attachAgentRun(
     {
       ...solveResult.project,
-      equilibriumResult: equilibrium,
+      equilibriumResult: displayedEquilibrium,
       propertyAnalyses: originalProject.propertyAnalyses,
       researchSession: {
         ...session,
@@ -1294,7 +1366,8 @@ function attachEquilibriumDraftForReview({
         ),
         assetSummary: {
           ...session.assetSummary,
-          equilibriumStatus: equilibrium.status,
+          equilibriumStatus:
+            displayedEquilibrium?.status ?? equilibrium.status,
           pendingDecision: {
             kind: "solve_equilibrium",
             prompt:

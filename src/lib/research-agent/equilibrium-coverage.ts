@@ -212,6 +212,25 @@ function extractModelCoverage(model?: HotellingModel) {
   const requiredSymbols = new Set<string>();
   const allTrackedSymbols = new Set<string>();
   const mechanismTermsBySymbol = new Map<string, EquilibriumCoverageSymbol>();
+  const timingDecisionSymbols = new Set(
+    (model?.timing ?? [])
+      .flatMap((stage) => stage.decisions)
+      .map(normalizeSymbol)
+      .filter(Boolean)
+  );
+  const payoffSymbols = new Set(
+    (model?.profitFunctions ?? [])
+      .flatMap((profit) => extractSymbolsFromText(profit.expression))
+      .map(normalizeSymbol)
+      .filter(Boolean)
+  );
+  const isStrategicDecisionSymbol = (symbol: string) => {
+    const normalized = normalizeSymbol(symbol);
+    return (
+      symbolAppearsInSet(normalized, timingDecisionSymbols) &&
+      symbolAppearsInSet(normalized, payoffSymbols)
+    );
+  };
 
   const addTrackedSymbol = (symbol: string) => {
     const normalized = normalizeSymbol(symbol);
@@ -245,7 +264,7 @@ function extractModelCoverage(model?: HotellingModel) {
     const normalized = addTrackedSymbol(symbol.codeName || symbol.symbol);
     if (!normalized) continue;
 
-    if (symbol.role === "decision") {
+    if (symbol.role === "decision" && isStrategicDecisionSymbol(normalized)) {
       decisionVariables.add(normalized);
       requiredSymbols.add(normalized);
     }
@@ -285,8 +304,11 @@ function extractModelCoverage(model?: HotellingModel) {
 
   for (const stage of model?.timing ?? []) {
     for (const decision of stage.decisions) {
-      const normalized = addRequiredSymbol(decision);
-      if (normalized) decisionVariables.add(normalized);
+      const normalized = addTrackedSymbol(decision);
+      if (normalized && isStrategicDecisionSymbol(normalized)) {
+        requiredSymbols.add(normalized);
+        decisionVariables.add(normalized);
+      }
       const mechanism = detectHighValueMechanism(`${stage.name} ${decision}`);
     if (mechanism && normalized) {
         if (isLikelyMechanismSymbol(normalized, mechanism.mechanism)) {
